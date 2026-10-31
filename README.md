@@ -1,3 +1,26 @@
+# STIX Lid Effects
+
+Native MacBook lid effects, based on [Mac Duo by Makito](https://github.com/sumimakito/Mac-Duo), Apache 2.0. macOS 14 or newer.
+
+- Mini control window from the menu bar.
+- Seven selectable effects: CRT, frosted glass, waves, paper fold, particles, edge light and cinematic fade; original Duo remains available.
+- **Option+B** toggles a fully blurred held image on every connected display. **Escape does not dismiss it.** Images stay in memory; they are never saved or uploaded. This is a visual effect, not a screen lock.
+- Login startup via SMAppService, with an on/off switch.
+- Sleep and display changes dismiss manual blur to prevent stale overlays.
+- Lid effects require a built-in lid angle sensor. Manual blur works independently.
+
+## Build and install
+
+Run `swift test`, then `./build.sh`. Copy `build/STIX Lid Effects.app` into Applications and launch. For a stable signed local build, set `SIGN_IDENTITY` to your Developer ID identity before running the build script. Grant Screen Recording permission to **STIX Lid Effects**, then restart it if macOS requests this. Local builds are not notarized automatically.
+
+The app registers Option+B using Carbon. No Accessibility permission or key logging is needed. If another app has reserved this shortcut, the mini window reports the conflict. Close the mini window to leave the menu bar utility running; use its Quit button to exit.
+
+## Verification
+
+`swift test` covers the existing lid policies and localization, progress validation, shader compilation and GPU-rendered frames for all effects. Pixel tests verify a clear desktop at zero progress and distinct intermediate effects.
+
+## Upstream documentation
+
 <div align="center">
 
 # Mac Duo

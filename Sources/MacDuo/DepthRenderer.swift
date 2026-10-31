@@ -23,6 +23,7 @@ final class DepthRenderer {
         var paddedAndBlur: SIMD4<Float>
         var shape: SIMD4<Float>
         var light: SIMD4<Float>
+        var effect: SIMD4<Float>
     }
 
     /// One held picture, built off the main thread and adopted on it.
@@ -410,7 +411,9 @@ final class DepthRenderer {
         dimHingeFloor: Double,
         dimReach: Double,
         maxBlurRadius: Double,
-        maxDim: Double
+        maxDim: Double,
+        effectStyle: EffectStyle = .original,
+        progress: Double = 0
     ) {
         guard let commands = queue.makeCommandBuffer() else { return }
         absorbPending(into: commands)
@@ -444,7 +447,8 @@ final class DepthRenderer {
                 Float(maxBlurRadius * Double(pixelScale)), Float(blurStrength)
             ),
             shape: SIMD4(Float(hingeFloor), Float(maxDim), Float(pixelScale), maxLevel),
-            light: SIMD4(Float(dimHingeFloor), Float(dimStrength), Float(dimReach), 0)
+            light: SIMD4(Float(dimHingeFloor), Float(dimStrength), Float(dimReach), 0),
+            effect: SIMD4(Float(effectStyle.rawValue), Float(EffectStyle.progress(progress)), 0, 0)
         )
 
         let pass = MTLRenderPassDescriptor()

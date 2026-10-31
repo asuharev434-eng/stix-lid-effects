@@ -1,6 +1,6 @@
 # Lid effects
 
-Approved in chat: seven selectable lid effects, Option+B toggles blur on all displays, Escape dismisses blur, compact control window and enabled login startup.
+Approved in chat: seven selectable lid effects, Option+B toggles blur on all displays; Escape is unchanged, compact control window and enabled login startup.
 
 Extend the existing native Swift/AppKit/Metal application. Keep original depth effect as an eighth choice. Use Carbon registered hotkeys without Accessibility permission. Manual blur captures each display into memory, Gaussian-blurs a held image and covers every display; it is a visual convenience, not a screen lock. Stop lid capture during manual blur. Cancel pending captures on dismissal, sleep and display changes. No screenshots are saved or transmitted.
 

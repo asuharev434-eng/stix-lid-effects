@@ -22,6 +22,9 @@ final class LidController: ObservableObject {
     @Published private(set) var isSensorAvailable = false
     @Published private(set) var isActive = false
 
+    var manuallySuppressed = false {
+        didSet { if manuallySuppressed { disableEffect() } }
+    }
     let snapshotter = ScreenSnapshotter()
 
     private let preferences: Preferences
@@ -213,7 +216,7 @@ final class LidController: ObservableObject {
 
     /// Plays the effect once on the current screen contents.
     func runPreview() {
-        guard preferences.isEnabled, !isSuspended, preview == nil, !isActive else { return }
+        guard preferences.isEnabled, !isSuspended, !manuallySuppressed, preview == nil, !isActive else { return }
         // Well above the trigger angle, so the sweep runs the pre-warm the way
         // a real close does.
         preview = PreviewRun(
@@ -241,7 +244,7 @@ final class LidController: ObservableObject {
     }
 
     private func poll() {
-        guard !isSuspended else { return }
+        guard !isSuspended, !manuallySuppressed else { return }
 
         let angle: Double
         if let run = preview {
@@ -656,6 +659,7 @@ final class LidController: ObservableObject {
 
     private var tuning: DepthTuning {
         DepthTuning(
+            effectStyle: preferences.effectStyle,
             viewingDistance: preferences.viewingDistance,
             recession: preferences.recession,
             blurEvenness: preferences.blurEvenness,

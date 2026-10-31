@@ -9,6 +9,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private let popover = NSPopover()
     private let preferences: Preferences
     private let controller: LidController
+    var onShowPanel: (() -> Void)?
     private var titleTimer: Timer?
     private var barWindowMoved: NSObjectProtocol?
 
@@ -60,6 +61,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     }
 
     @objc private func togglePopover(_ sender: Any?) {
+        if let onShowPanel { onShowPanel(); return }
         guard let button = statusItem.button else { return }
         if popover.isShown {
             popover.performClose(sender)

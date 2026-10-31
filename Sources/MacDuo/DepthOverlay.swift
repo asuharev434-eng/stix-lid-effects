@@ -57,6 +57,7 @@ struct DepthGeometry {
 
 /// The settings that shape one frame.
 struct DepthTuning {
+    var effectStyle: EffectStyle = .original
     var viewingDistance: Double = 2.7
     var recession: Double = 2
     var blurEvenness: Double = 0.4
@@ -287,7 +288,9 @@ final class DepthOverlay {
             dimHingeFloor: gradient.dimHingeFloor,
             dimReach: tuning.dimReach,
             maxBlurRadius: tuning.maxBlurRadius,
-            maxDim: tuning.maxDim
+            maxDim: tuning.maxDim,
+            effectStyle: tuning.effectStyle,
+            progress: progress
         )
     }
 

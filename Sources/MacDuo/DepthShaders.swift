@@ -21,6 +21,7 @@ enum DepthShaders {
         float4 paddedAndBlur;    // padded size, max radius in pixels, blur strength
         float4 shape;            // blur floor, max dim, pixel scale, max level
         float4 light;            // dim floor, dim strength, dim reach, unused
+        float4 effect;           // style, progress, reserved, reserved
     };
 
     vertex float4 depthVertex(uint vertexID [[vertex_id]]) {
@@ -45,6 +46,68 @@ enum DepthShaders {
         float dimFloor = uniforms.light.x;
         float dimStrength = uniforms.light.y;
         float dimReach = uniforms.light.z;
+
+        int style = int(uniforms.effect.x);
+        float p = clamp(uniforms.effect.y, 0.0, 1.0);
+        if (style != 0) {
+            float2 uv = position.xy / (screenSize * pixelScale);
+            float2 q = uv;
+            float opacity = 1.0;
+            float glow = 0.0;
+            float radius = 0.0;
+            float2 centered = uv - 0.5;
+            if (style == 1) {
+                // CRT: collapse vertically, then squeeze the glowing line.
+                float sy = max(1.0 - smoothstep(0.0, 0.82, p), 0.0015);
+                float sx = max(1.0 - smoothstep(0.78, 1.0, p), 0.001);
+                q = centered / float2(sx, sy) + 0.5;
+                glow = exp(-abs(centered.y) * 800.0) * p * (1.0 - p);
+                opacity = 1.0 - smoothstep(0.95, 1.0, p);
+            } else if (style == 2) {
+                radius = 160.0 * pixelScale * p;
+                opacity = 1.0 - 0.45 * p;
+            } else if (style == 3) {
+                q.x += sin(uv.y * 30.0 + p * 12.0) * sin(p * 3.14159) * 0.035;
+                q.y += sin(uv.x * 22.0 - p * 10.0) * sin(p * 3.14159) * 0.018;
+                radius = 20.0 * pixelScale * p;
+                opacity = 1.0 - p * p;
+            } else if (style == 4) {
+                // Hinged paper sheet: narrow perspective and curved crease.
+                float fold = max(1.0 - p, 0.002);
+                q.y = 1.0 - (1.0 - uv.y) / fold;
+                q.x = centered.x / max(1.0 - p * (1.0 - uv.y) * 0.65, 0.1) + 0.5;
+                q.y += sin(uv.x * 3.14159) * p * 0.16;
+                opacity = (1.0 - 0.45 * p) * (1.0 - smoothstep(0.92, 1.0, p));
+            } else if (style == 5) {
+                // Stable cells drift apart while the desktop dissolves.
+                float2 cell = floor(uv * float2(160.0, 100.0));
+                float noise = fract(sin(dot(cell, float2(127.1, 311.7))) * 43758.5453);
+                float drift = p * p;
+                q += float2((noise - 0.5) * 0.35, -noise * 0.5) * drift;
+                float2 speck = fract(uv * float2(160.0, 100.0));
+                float grain = smoothstep(0.06, 0.13, min(min(speck.x, 1.0-speck.x), min(speck.y, 1.0-speck.y)));
+                opacity = mix(1.0, grain, p) * (1.0 - smoothstep(noise * 0.65, noise * 0.65 + 0.35, p));
+            } else if (style == 6) {
+                float edge = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
+                glow = exp(-edge * 100.0) * sin(p * 3.14159);
+                opacity = 1.0 - smoothstep(0.25, 1.0, p);
+            } else if (style == 7) {
+                q = centered * (1.0 + 0.08 * p) + 0.5;
+                radius = 80.0 * pixelScale * p * p;
+                opacity = pow(1.0 - p, 1.8);
+            }
+            bool inside = all(q >= 0.0) && all(q <= 1.0);
+            float2 point = float2(q.x * screenSize.x, (1.0 - q.y) * screenSize.y);
+            float2 unit = (point - paddedOrigin) / paddedSize;
+            float2 tex = float2(unit.x, 1.0 - unit.y);
+            float mip = clamp(log2(max(radius, 1.0)), 0.0, maxLevel);
+            float3 rgb = picture.sample(linearSampler, tex, level(mip)).rgb;
+            if (!inside) rgb = float3(0.0);
+            rgb *= opacity;
+            if (style == 2) rgb = mix(rgb, float3(0.4, 0.46, 0.52), p * 0.12);
+            rgb += glow * float3(0.45, 0.7, 1.0);
+            return float4(rgb, 1.0);
+        }
 
         // Fragment coordinates are pixels with y down; the geometry is points
         // with y up.

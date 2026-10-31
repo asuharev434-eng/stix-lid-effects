@@ -6,6 +6,10 @@ import Foundation
 final class Preferences: ObservableObject {
     static let shared = Preferences()
 
+    @Published var effectStyle: EffectStyle = EffectStyle(rawValue: UserDefaults.standard.integer(forKey: "effectStyle")) ?? .original {
+        didSet { defaults.set(effectStyle.rawValue, forKey: "effectStyle") }
+    }
+
     private enum Key {
         static let isEnabled = "isEnabled"
         static let isTimeoutEnabled = "isTimeoutEnabled"
