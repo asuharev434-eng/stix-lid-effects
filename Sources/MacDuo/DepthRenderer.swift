@@ -7,7 +7,7 @@ import simd
 /// Draws the picture with Metal.
 ///
 /// The picture sits on a black margin in one texture, with a Gaussian pyramid
-/// over it. Most effects use one full-screen pass; glass uses a cached shard mesh and depth buffer.
+/// over it. Most effects use one full-screen pass; glass and cards use cached meshes and a depth buffer.
 @MainActor
 final class DepthRenderer {
 
@@ -47,11 +47,14 @@ final class DepthRenderer {
     nonisolated private let queue: MTLCommandQueue
     private let pipeline: MTLRenderPipelineState
     private let glassPipeline: MTLRenderPipelineState
-    private let glassDepthState: MTLDepthStencilState
-    private var glassBuffer: MTLBuffer?
-    private var glassVertexCount = 0
-    private var glassAspect = 0.0
-    private var glassDepthTexture: MTLTexture?
+    private let cardPipeline: MTLRenderPipelineState
+    private var cardTexture: MTLTexture?
+    private var meshStyle: EffectStyle?
+    private let meshDepthState: MTLDepthStencilState
+    private var meshBuffer: MTLBuffer?
+    private var meshVertexCount = 0
+    private var meshAspect = 0.0
+    private var meshDepthTexture: MTLTexture?
     private var texture: MTLTexture?
     private var screenSize: CGSize = .zero
     private var pixelScale: CGFloat = 2
@@ -93,11 +96,14 @@ final class DepthRenderer {
             descriptor.fragmentFunction = library.makeFunction(name: "glassFragment")
             descriptor.depthAttachmentPixelFormat = .depth32Float
             glassPipeline = try device.makeRenderPipelineState(descriptor: descriptor)
+            descriptor.vertexFunction = library.makeFunction(name: "cardVertex")
+            descriptor.fragmentFunction = library.makeFunction(name: "cardFragment")
+            cardPipeline = try device.makeRenderPipelineState(descriptor: descriptor)
             let depth = MTLDepthStencilDescriptor()
             depth.depthCompareFunction = .lessEqual
             depth.isDepthWriteEnabled = true
             guard let state = device.makeDepthStencilState(descriptor: depth) else { return nil }
-            glassDepthState = state
+            meshDepthState = state
         } catch {
             Diagnostics.geometry.error("metal pipeline failed: \(String(describing: error), privacy: .public)")
             return nil
@@ -414,27 +420,39 @@ final class DepthRenderer {
 
     func release() {
         texture = nil
-        glassDepthTexture = nil
+        meshDepthTexture = nil
     }
 
-    private func prepareGlass(width: Int, height: Int) -> Bool {
+    private func prepareMesh(style: EffectStyle, width: Int, height: Int) -> Bool {
         let aspect = Double(screenSize.width / screenSize.height)
-        if glassBuffer == nil || abs(glassAspect - aspect) > 0.00001 {
-            let vertices = GlassFracture.vertices(aspect: aspect)
-            glassVertexCount = vertices.count
-            glassBuffer = vertices.withUnsafeBytes {
+        if meshBuffer == nil || meshStyle != style || abs(meshAspect - aspect) > 0.00001 {
+            let vertices = style == .cards ? CardDeckMesh.vertices(aspect: aspect) : GlassFracture.vertices(aspect: aspect)
+            meshVertexCount = vertices.count
+            meshBuffer = vertices.withUnsafeBytes {
                 guard let address = $0.baseAddress else { return nil }
                 return device.makeBuffer(bytes: address, length: $0.count, options: .storageModeShared)
             }
-            glassAspect = aspect
+            meshAspect = aspect
+            meshStyle = style
         }
-        if glassDepthTexture?.width != width || glassDepthTexture?.height != height {
+        if meshDepthTexture?.width != width || meshDepthTexture?.height != height {
             let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .depth32Float, width: width, height: height, mipmapped: false)
             descriptor.storageMode = .private
             descriptor.usage = [.renderTarget]
-            glassDepthTexture = device.makeTexture(descriptor: descriptor)
+            meshDepthTexture = device.makeTexture(descriptor: descriptor)
         }
-        return glassBuffer != nil && glassDepthTexture != nil && glassVertexCount > 0
+        if style == .cards, cardTexture == nil {
+            guard let image = CardArtwork.makeAtlas(), let data = image.dataProvider?.data,
+                  let bytes = CFDataGetBytePtr(data) else { return false }
+            let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm_srgb, width: image.width, height: image.height, mipmapped: false)
+            descriptor.storageMode = .shared
+            descriptor.usage = .shaderRead
+            guard let atlas = device.makeTexture(descriptor: descriptor) else { return false }
+            atlas.replace(region: MTLRegionMake2D(0, 0, image.width, image.height), mipmapLevel: 0,
+                          withBytes: bytes, bytesPerRow: image.bytesPerRow)
+            cardTexture = atlas
+        }
+        return meshBuffer != nil && meshDepthTexture != nil && meshVertexCount > 0
     }
 
     /// - Parameter corners: the picture corners projected onto the screen, in
@@ -495,13 +513,13 @@ final class DepthRenderer {
         pass.colorAttachments[0].storeAction = .store
         pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
 
-        let isGlass = effectStyle == .shatter
-        if isGlass {
-            guard prepareGlass(width: drawable.texture.width, height: drawable.texture.height) else {
+        let isMesh = effectStyle == .shatter || effectStyle == .cards
+        if isMesh {
+            guard prepareMesh(style: effectStyle, width: drawable.texture.width, height: drawable.texture.height) else {
                 commands.commit()
                 return
             }
-            pass.depthAttachment.texture = glassDepthTexture
+            pass.depthAttachment.texture = meshDepthTexture
             pass.depthAttachment.loadAction = .clear
             pass.depthAttachment.storeAction = .dontCare
             pass.depthAttachment.clearDepth = 1
@@ -510,15 +528,16 @@ final class DepthRenderer {
             commands.commit()
             return
         }
-        encoder.setRenderPipelineState(isGlass ? glassPipeline : pipeline)
-        if isGlass {
-            encoder.setDepthStencilState(glassDepthState)
-            encoder.setVertexBuffer(glassBuffer, offset: 0, index: 0)
+        encoder.setRenderPipelineState(effectStyle == .cards ? cardPipeline : isMesh ? glassPipeline : pipeline)
+        if isMesh {
+            encoder.setDepthStencilState(meshDepthState)
+            encoder.setVertexBuffer(meshBuffer, offset: 0, index: 0)
             encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 1)
         }
         encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
         encoder.setFragmentTexture(texture, index: 0)
-        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: isGlass ? glassVertexCount : 3)
+        if effectStyle == .cards { encoder.setFragmentTexture(cardTexture, index: 1) }
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: isMesh ? meshVertexCount : 3)
         encoder.endEncoding()
         commands.present(drawable)
         if let onRendered {

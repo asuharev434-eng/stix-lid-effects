@@ -34,6 +34,18 @@ struct EffectPixelTests {
         descriptor.fragmentFunction = library.makeFunction(name: "glassFragment")
         descriptor.depthAttachmentPixelFormat = .depth32Float
         let glassPipeline = try device.makeRenderPipelineState(descriptor: descriptor)
+        descriptor.vertexFunction = library.makeFunction(name: "cardVertex")
+        descriptor.fragmentFunction = library.makeFunction(name: "cardFragment")
+        let cardPipeline = try device.makeRenderPipelineState(descriptor: descriptor)
+        let cardVertices = CardDeckMesh.vertices(aspect: 1)
+        let cardBuffer = try #require(cardVertices.withUnsafeBytes { device.makeBuffer(bytes: $0.baseAddress!, length: $0.count, options: .storageModeShared) })
+        let atlas = try #require(CardArtwork.makeAtlas())
+        let atlasDescriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm_srgb, width: atlas.width, height: atlas.height, mipmapped: false)
+        atlasDescriptor.storageMode = .shared
+        atlasDescriptor.usage = .shaderRead
+        let atlasTexture = try #require(device.makeTexture(descriptor: atlasDescriptor))
+        let atlasData = try #require(atlas.dataProvider?.data)
+        atlasTexture.replace(region: MTLRegionMake2D(0, 0, atlas.width, atlas.height), mipmapLevel: 0, withBytes: CFDataGetBytePtr(atlasData)!, bytesPerRow: atlas.bytesPerRow)
         let depthDescriptor = MTLDepthStencilDescriptor()
         depthDescriptor.depthCompareFunction = .lessEqual
         depthDescriptor.isDepthWriteEnabled = true
@@ -78,7 +90,9 @@ struct EffectPixelTests {
             pass.colorAttachments[0].texture = output
             pass.colorAttachments[0].loadAction = .clear
             pass.colorAttachments[0].storeAction = .store
-            if style == .shatter {
+            pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+            let isMesh = style == .shatter || style == .cards
+            if isMesh {
                 let depthTextureDescriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .depth32Float, width: size, height: size, mipmapped: false)
                 depthTextureDescriptor.storageMode = .private
                 depthTextureDescriptor.usage = .renderTarget
@@ -90,15 +104,16 @@ struct EffectPixelTests {
             }
             let command = try #require(queue.makeCommandBuffer())
             let encoder = try #require(command.makeRenderCommandEncoder(descriptor: pass))
-            encoder.setRenderPipelineState(style == .shatter ? glassPipeline : pipeline)
-            if style == .shatter {
+            encoder.setRenderPipelineState(style == .cards ? cardPipeline : style == .shatter ? glassPipeline : pipeline)
+            if isMesh {
                 encoder.setDepthStencilState(depthState)
-                encoder.setVertexBuffer(glassBuffer, offset: 0, index: 0)
+                encoder.setVertexBuffer(style == .cards ? cardBuffer : glassBuffer, offset: 0, index: 0)
                 uniforms.withUnsafeMutableBytes { encoder.setVertexBytes($0.baseAddress!, length: $0.count, index: 1) }
             }
             uniforms.withUnsafeMutableBytes { encoder.setFragmentBytes($0.baseAddress!, length: $0.count, index: 0) }
             encoder.setFragmentTexture(source, index: 0)
-            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: style == .shatter ? vertices.count : 3)
+            if style == .cards { encoder.setFragmentTexture(atlasTexture, index: 1) }
+            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: style == .cards ? cardVertices.count : style == .shatter ? vertices.count : 3)
             encoder.endEncoding()
             command.commit()
             command.waitUntilCompleted()
@@ -109,20 +124,33 @@ struct EffectPixelTests {
         }
         if let exportDirectory {
             try FileManager.default.createDirectory(atPath: exportDirectory, withIntermediateDirectories: true)
-            for (index, progress) in [Float(0), 0.12, 0.26, 0.43, 0.60, 0.76].enumerated() {
-                let bytes = try render(.shatter, progress)
-                let provider = try #require(CGDataProvider(data: Data(bytes) as CFData))
-                let image = try #require(CGImage(width: size, height: size, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: size * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue), provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
-                let url = URL(fileURLWithPath: exportDirectory).appendingPathComponent("glass-\(index).png")
-                let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil))
-                CGImageDestinationAddImage(destination, image, nil)
-                #expect(CGImageDestinationFinalize(destination))
+            for style in [EffectStyle.shatter, .cards] {
+                for (index, progress) in [Float(0), 0.12, 0.26, 0.43, 0.60, 0.76].enumerated() {
+                    let bytes = try render(style, progress)
+                    let provider = try #require(CGDataProvider(data: Data(bytes) as CFData))
+                    let image = try #require(CGImage(width: size, height: size, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: size * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue), provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+                    let name = style == .cards ? "cards" : "glass"
+                    let url = URL(fileURLWithPath: exportDirectory).appendingPathComponent("\(name)-\(index).png")
+                    let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil))
+                    CGImageDestinationAddImage(destination, image, nil)
+                    #expect(CGImageDestinationFinalize(destination))
+                }
             }
+            let atlasURL = URL(fileURLWithPath: exportDirectory).appendingPathComponent("card-faces.png")
+            let atlasDestination = try #require(CGImageDestinationCreateWithURL(atlasURL as CFURL, "public.png" as CFString, 1, nil))
+            CGImageDestinationAddImage(atlasDestination, atlas, nil)
+            #expect(CGImageDestinationFinalize(atlasDestination))
         }
         for style in EffectStyle.allCases {
             let black = try render(style, 1, blackout: true)
             #expect(black.enumerated().allSatisfy { $0.offset % 4 == 3 ? $0.element == 255 : $0.element == 0 }, "Manual effect must end fully black: \(style.title)")
         }
+        let flyingCards = try render(.cards, 0.43)
+        let visibleCards = stride(from: 0, to: flyingCards.count, by: 4).filter {
+            flyingCards[$0] > 8 || flyingCards[$0 + 1] > 8 || flyingCards[$0 + 2] > 8
+        }.count
+        #expect(visibleCards > size * size / 10, "Cards must remain visibly in flight during the middle of the effect")
+        #expect(visibleCards < size * size * 95 / 100, "Cards must separate, exposing space behind them")
         let reference = try render(.original, 0)
         let cracking = try render(.shatter, 0.15)
         #expect(cracking != reference)

@@ -1,7 +1,7 @@
 import Foundation
 import simd
 
-/// Shared with the Metal GlassVertex layout (64 bytes, float4 aligned).
+/// Mesh ABI shared by glass and cards; matches the Metal GlassVertex layout (64 bytes, float4 aligned).
 struct GlassVertex {
     var source: SIMD2<Float>
     var pivot: SIMD2<Float>

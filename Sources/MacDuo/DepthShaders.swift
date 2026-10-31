@@ -104,6 +104,91 @@ enum DepthShaders {
         return float4(colour, 1.0);
     }
 
+    struct CardVarying {
+        float4 position [[position]];
+        float2 source;
+        float2 uv;
+        float3 normal;
+        float cardID;
+        float lift;
+    };
+    vertex CardVarying cardVertex(uint id [[vertex_id]],
+                                  constant GlassVertex *vertices [[buffer(0)]],
+                                  constant Uniforms &u [[buffer(1)]]) {
+        GlassVertex v = vertices[id];
+        float aspect = u.screenAndOrigin.x / u.screenAndOrigin.y;
+        float p = clamp(u.effect.y, 0.0, 1.0);
+        float t = max(p - v.motion.x, 0.0) * 2.3;
+        float lift = smoothstep(0.0, 0.38, t);
+        float3 local = float3((v.source - v.pivot) * float2(aspect, 1.0), 0.0);
+        // Start as exact desktop tiles; grow into standard poker-card proportions.
+        local.x *= mix(1.0, (0.25 * 140.0 / 196.0) / (aspect / 13.0), lift);
+        float sign = fmod(v.axis.w, 2.0) < 1.0 ? 1.0 : -1.0;
+        float turnY = sign * t * (3.3 + v.motion.y * 2.4);
+        float turnX = t * v.axis.x * 2.0;
+        float turnZ = t * v.axis.z * 1.4;
+        float3 rotated = glassRotate(local, float3(0, 1, 0), turnY);
+        rotated = glassRotate(rotated, float3(1, 0, 0), turnX);
+        rotated = glassRotate(rotated, float3(0, 0, 1), turnZ);
+        float3 normal = glassRotate(float3(0, 0, 1), float3(0, 1, 0), turnY);
+        normal = glassRotate(normal, float3(1, 0, 0), turnX);
+        normal = glassRotate(normal, float3(0, 0, 1), turnZ);
+        float2 radial = (v.pivot - 0.5) * float2(aspect, 1.0);
+        float2 drift = float2(radial.x * 0.55 + (v.motion.y - 0.5) * 0.32, radial.y * 0.32 - 0.015);
+        float3 world = float3(v.pivot * float2(aspect, 1.0), 0.0) + rotated;
+        world.xy += drift * (t + 0.20 * t * t);
+        world.z -= (1.05 + v.motion.y * 0.30) * t + 0.46 * t * t;
+        // Homogeneous projection: cards clip naturally as they pass the near plane.
+        const float camera = 2.8, nearPlane = 0.08, farPlane = 8.0;
+        float w = camera + world.z;
+        float2 clip = float2(world.x / aspect * 2.0 - 1.0, 1.0 - world.y * 2.0) * camera;
+        CardVarying out;
+        out.position = float4(clip, farPlane / (farPlane - nearPlane) * w - farPlane * nearPlane / (farPlane - nearPlane), w);
+        out.source = v.source;
+        out.uv = v.edge.xy;
+        out.normal = normal;
+        out.cardID = v.axis.w;
+        out.lift = lift;
+        return out;
+    }
+    fragment float4 cardFragment(CardVarying in [[stage_in]],
+                                 constant Uniforms &u [[buffer(0)]],
+                                 texture2d<float> picture [[texture(0)]],
+                                 texture2d<float> faces [[texture(1)]]) {
+        constexpr sampler linearSampler(filter::linear, mip_filter::linear, address::clamp_to_edge);
+        float2 local = (in.uv - 0.5) * float2(140.0 / 196.0, 1.0);
+        float radius = 0.032 * in.lift;
+        float2 q = abs(local) - (float2(70.0 / 196.0, 0.5) - radius);
+        float sdf = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+        if (sdf > 0.00001) discard_fragment();
+        float3 normal = normalize(in.normal);
+        float3 colour;
+        if (normal.z >= 0.0) {
+            // The reverse of every card is its own desktop fragment.
+            float2 point = float2(in.source.x * u.screenAndOrigin.x, (1.0 - in.source.y) * u.screenAndOrigin.y);
+            float2 tex = (point - u.screenAndOrigin.zw) / u.paddedAndBlur.xy;
+            tex.y = 1.0 - tex.y;
+            colour = picture.sample(linearSampler, tex, level(0.0)).rgb;
+            float edge = min(min(in.uv.x, 1.0 - in.uv.x) * 140.0 / 196.0, min(in.uv.y, 1.0 - in.uv.y));
+            float border = (1.0 - smoothstep(0.006, 0.012, edge)) * in.lift;
+            colour = mix(colour, float3(0.96, 0.94, 0.89), border);
+        } else {
+            int index = clamp(int(in.cardID + 0.5), 0, 51);
+            float2 cell = float2(index % 13, index / 13);
+            // Mirror the front UV because it is on the opposite side of the paper.
+            float2 uv = float2(1.0 - in.uv.x, in.uv.y);
+            float2 inset = 0.5 / float2(140.0, 196.0);
+            uv = clamp(uv, inset, 1.0 - inset);
+            colour = faces.sample(linearSampler, (cell + uv) / float2(13.0, 4.0)).rgb;
+        }
+        float diffuse = 0.48 + 0.52 * abs(normal.z);
+        colour *= mix(1.0, diffuse, in.lift);
+        float sheen = pow(max(dot(normal * (normal.z >= 0.0 ? 1.0 : -1.0), normalize(float3(-0.3, -0.4, 1))), 0.0), 28.0);
+        colour += float3(0.045, 0.040, 0.030) * sheen * in.lift;
+        colour *= 1.0 - smoothstep(0.94, 1.0, u.effect.y);
+        return float4(colour, 1.0);
+    }
+
     vertex float4 depthVertex(uint vertexID [[vertex_id]]) {
         const float2 corners[3] = { float2(-1.0, -3.0), float2(-1.0, 1.0), float2(3.0, 1.0) };
         return float4(corners[vertexID], 0.0, 1.0);

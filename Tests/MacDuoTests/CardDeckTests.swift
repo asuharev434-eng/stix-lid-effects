@@ -1,0 +1,26 @@
+import CoreGraphics
+import Testing
+@testable import MacDuo
+
+struct CardDeckTests {
+    @Test func deckHas52CardsAndCoversTheDesktopExactly() {
+        let vertices = CardDeckMesh.vertices(aspect: 1.6)
+        #expect(vertices.count == 52 * 6)
+        #expect(Set(vertices.map { Int($0.axis.w) }) == Set(0..<52))
+        #expect(vertices.allSatisfy { (0...1).contains($0.source.x) && (0...1).contains($0.source.y) })
+        var area: Float = 0
+        for i in stride(from: 0, to: vertices.count, by: 3) {
+            let a = vertices[i + 1].source - vertices[i].source
+            let b = vertices[i + 2].source - vertices[i].source
+            area += abs(a.x * b.y - a.y * b.x) / 2
+        }
+        #expect(abs(area - 1) < 0.00001)
+        #expect(CardDeckMesh.vertices(aspect: .nan).isEmpty)
+    }
+    @Test func artworkHasAllFacesAndOpaquePaper() throws {
+        let atlas = try #require(CardArtwork.makeAtlas())
+        #expect(atlas.width == CardArtwork.cardWidth * 13)
+        #expect(atlas.height == CardArtwork.cardHeight * 4)
+        #expect(MemoryLayout<GlassVertex>.stride == 64)
+    }
+}
