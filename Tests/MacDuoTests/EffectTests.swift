@@ -142,12 +142,12 @@ struct EffectPixelTests {
         }
         if let exportDirectory {
             try FileManager.default.createDirectory(atPath: exportDirectory, withIntermediateDirectories: true)
-            for style in [EffectStyle.shatter, .cards] {
+            for style in [EffectStyle.shatter, .cards, .paintRoller] {
                 for (index, progress) in [Float(0), 0.12, 0.26, 0.43, 0.60, 0.76].enumerated() {
                     let bytes = try render(style, progress)
                     let provider = try #require(CGDataProvider(data: Data(bytes) as CFData))
                     let image = try #require(CGImage(width: size, height: size, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: size * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue), provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
-                    let name = style == .cards ? "cards" : "glass"
+                    let name = style == .cards ? "cards" : style == .paintRoller ? "roller" : "glass"
                     let url = URL(fileURLWithPath: exportDirectory).appendingPathComponent("\(name)-\(index).png")
                     let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil))
                     CGImageDestinationAddImage(destination, image, nil)
@@ -184,6 +184,23 @@ struct EffectPixelTests {
             lateCards[$0] > 8 || lateCards[$0 + 1] > 8 || lateCards[$0 + 2] > 8
         }.count
         #expect(lateVisible > size * size / 100, "Staggered cards must keep flying near the end of the unchanged duration")
+        let untouchedDesktop = try render(.original, 0)
+        // Each completed horizontal pass must leave exactly one more black band.
+        for (phase, paintedRows) in [(Float(0.32), 1), (Float(0.65), 2)] {
+            let painted = try render(.paintRoller, phase)
+            for band in 0..<3 {
+                let x = size / 2, y = (2 * band + 1) * size / 6
+                let pixel = (y * size + x) * 4
+                let isBlack = painted[pixel..<pixel + 3].allSatisfy { $0 == 0 }
+                #expect(isBlack == (band < paintedRows), "Paint must accumulate in three passes without fading the untouched desktop")
+                if band >= paintedRows {
+                    #expect(Array(painted[pixel..<pixel + 4]) == Array(untouchedDesktop[pixel..<pixel + 4]))
+                }
+            }
+        }
+        let fullPaint = try render(.paintRoller, 1)
+        #expect(fullPaint.enumerated().allSatisfy { $0.offset % 4 == 3 ? $0.element == 255 : $0.element == 0 })
+        #expect(EffectStyle.paintRoller.manualDuration == 4.2)
         let reference = try render(.original, 0)
         let cracking = try render(.shatter, 0.15)
         #expect(cracking != reference)

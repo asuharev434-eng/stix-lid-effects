@@ -198,6 +198,8 @@ enum DepthShaders {
         return float4(colour, 1.0);
     }
 
+    \(PaintRollerShader.source)
+
     vertex float4 depthVertex(uint vertexID [[vertex_id]]) {
         const float2 corners[3] = { float2(-1.0, -3.0), float2(-1.0, 1.0), float2(3.0, 1.0) };
         return float4(corners[vertexID], 0.0, 1.0);
@@ -224,6 +226,14 @@ enum DepthShaders {
         int style = int(uniforms.effect.x);
         float p = clamp(uniforms.effect.y, 0.0, 1.0);
         float blackoutFade = uniforms.effect.z > 0.5 ? 1.0 - smoothstep(0.82, 1.0, p) : 1.0;
+        if (style == 10) {
+            float2 uv = position.xy / (screenSize * pixelScale);
+            float2 point = float2(uv.x * screenSize.x, (1.0 - uv.y) * screenSize.y);
+            float2 unit = (point - paddedOrigin) / paddedSize;
+            float3 desktop = picture.sample(linearSampler, float2(unit.x, 1.0 - unit.y), level(0.0)).rgb;
+            return float4(paintRoller(uv, p, screenSize.x / screenSize.y,
+                                     1.2 / (screenSize.y * pixelScale), desktop), 1.0);
+        }
         if (style != 0) {
             float2 uv = position.xy / (screenSize * pixelScale);
             float2 q = uv;

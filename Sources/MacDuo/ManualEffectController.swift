@@ -58,7 +58,7 @@ final class ManualEffectController: ObservableObject {
                 error = inputGuard.error
                 return
             }
-            duration = preferences.effectStyle == .cards ? 3.4 : preferences.effectStyle == .shatter ? 3.0 : 1.6
+            duration = preferences.effectStyle.manualDuration
             tuning = DepthTuning(effectStyle: preferences.effectStyle, isManualBlackout: true,
                                 viewingDistance: preferences.viewingDistance, recession: preferences.recession,
                                 blurEvenness: preferences.blurEvenness, dimReach: preferences.dimReach,
