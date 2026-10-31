@@ -1,7 +1,7 @@
 import Foundation
 
 enum EffectStyle: Int, CaseIterable, Identifiable {
-    case original, television, frost, waves, paper, particles, edgeLight, cinema, shatter, cards, paintRoller
+    case original, television, frost, waves, paper, particles, edgeLight, cinema, shatter, cards, paintRoller, rubles, dollars
     var id: Int { rawValue }
     var title: String {
         switch self {
@@ -16,6 +16,8 @@ enum EffectStyle: Int, CaseIterable, Identifiable {
         case .shatter: return "Трещины и осколки"
         case .cards: return "Колода карт"
         case .paintRoller: return "Малярный валик"
+        case .rubles: return "Рубли · 5 000 ₽"
+        case .dollars: return "Доллары · $100"
         }
     }
     var symbol: String {
@@ -31,11 +33,21 @@ enum EffectStyle: Int, CaseIterable, Identifiable {
         case .shatter: return "burst"
         case .cards: return "suit.spade.fill"
         case .paintRoller: return "paintbrush.pointed.fill"
+        case .rubles: return "banknote.fill"
+        case .dollars: return "dollarsign.circle.fill"
+        }
+    }
+    var isFlyingPaper: Bool { self == .cards || banknoteCurrency != nil }
+    var banknoteCurrency: BanknoteCurrency? {
+        switch self {
+        case .rubles: return .rubles
+        case .dollars: return .dollars
+        default: return nil
         }
     }
     var manualDuration: TimeInterval {
         switch self {
-        case .cards: return 3.4
+        case .cards, .rubles, .dollars: return 3.4
         case .shatter: return 3.0
         case .paintRoller: return 4.2
         default: return 1.6

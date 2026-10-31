@@ -48,8 +48,11 @@ final class DepthRenderer {
     private let pipeline: MTLRenderPipelineState
     private let glassPipeline: MTLRenderPipelineState
     private let cardPipeline: MTLRenderPipelineState
-    private var cardTexture: MTLTexture?
-    private var cardBackTexture: MTLTexture?
+    private struct PaperTextures {
+        let front: MTLTexture
+        let back: MTLTexture
+    }
+    private var paperTextures: [EffectStyle: PaperTextures] = [:]
     private var meshStyle: EffectStyle?
     private let meshDepthState: MTLDepthStencilState
     private var meshBuffer: MTLBuffer?
@@ -427,7 +430,9 @@ final class DepthRenderer {
     private func prepareMesh(style: EffectStyle, width: Int, height: Int) -> Bool {
         let aspect = Double(screenSize.width / screenSize.height)
         if meshBuffer == nil || meshStyle != style || abs(meshAspect - aspect) > 0.00001 {
-            let vertices = style == .cards ? CardDeckMesh.vertices(aspect: aspect) : GlassFracture.vertices(aspect: aspect)
+            let vertices = style.isFlyingPaper
+                ? CardDeckMesh.vertices(aspect: aspect, columns: style == .cards ? 13 : 8, rows: style == .cards ? 4 : 6)
+                : GlassFracture.vertices(aspect: aspect)
             meshVertexCount = vertices.count
             meshBuffer = vertices.withUnsafeBytes {
                 guard let address = $0.baseAddress else { return nil }
@@ -442,10 +447,18 @@ final class DepthRenderer {
             descriptor.usage = [.renderTarget]
             meshDepthTexture = device.makeTexture(descriptor: descriptor)
         }
-        if style == .cards {
-            if cardTexture == nil { cardTexture = makeArtworkTexture(CardArtwork.makeAtlas()) }
-            if cardBackTexture == nil { cardBackTexture = makeArtworkTexture(CardBackArtwork.makeImage()) }
-            guard cardTexture != nil, cardBackTexture != nil else { return false }
+        if style.isFlyingPaper, paperTextures[style] == nil {
+            let frontImage: CGImage?
+            let backImage: CGImage?
+            if let currency = style.banknoteCurrency {
+                frontImage = BanknoteArtwork.makeImage(currency: currency, reverse: false)
+                backImage = BanknoteArtwork.makeImage(currency: currency, reverse: true)
+            } else {
+                frontImage = CardArtwork.makeAtlas()
+                backImage = CardBackArtwork.makeImage()
+            }
+            guard let front = makeArtworkTexture(frontImage), let back = makeArtworkTexture(backImage) else { return false }
+            paperTextures[style] = PaperTextures(front: front, back: back)
         }
         return meshBuffer != nil && meshDepthTexture != nil && meshVertexCount > 0
     }
@@ -521,7 +534,7 @@ final class DepthRenderer {
         pass.colorAttachments[0].storeAction = .store
         pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
 
-        let isMesh = effectStyle == .shatter || effectStyle == .cards
+        let isMesh = effectStyle == .shatter || effectStyle.isFlyingPaper
         if isMesh {
             guard prepareMesh(style: effectStyle, width: drawable.texture.width, height: drawable.texture.height) else {
                 commands.commit()
@@ -536,7 +549,7 @@ final class DepthRenderer {
             commands.commit()
             return
         }
-        encoder.setRenderPipelineState(effectStyle == .cards ? cardPipeline : isMesh ? glassPipeline : pipeline)
+        encoder.setRenderPipelineState(effectStyle.isFlyingPaper ? cardPipeline : isMesh ? glassPipeline : pipeline)
         if isMesh {
             encoder.setDepthStencilState(meshDepthState)
             encoder.setVertexBuffer(meshBuffer, offset: 0, index: 0)
@@ -544,9 +557,9 @@ final class DepthRenderer {
         }
         encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
         encoder.setFragmentTexture(texture, index: 0)
-        if effectStyle == .cards {
-            encoder.setFragmentTexture(cardTexture, index: 1)
-            encoder.setFragmentTexture(cardBackTexture, index: 2)
+        if effectStyle.isFlyingPaper, let artwork = paperTextures[effectStyle] {
+            encoder.setFragmentTexture(artwork.front, index: 1)
+            encoder.setFragmentTexture(artwork.back, index: 2)
         }
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: isMesh ? meshVertexCount : 3)
         encoder.endEncoding()

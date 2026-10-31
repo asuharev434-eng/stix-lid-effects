@@ -124,7 +124,13 @@ enum DepthShaders {
         float lift = extra ? 1.0 : smoothstep(0.0, 0.38, t);
         float3 local = float3((v.source - v.pivot) * float2(aspect, 1.0), 0.0);
         // Start as exact desktop tiles; grow into standard poker-card proportions.
-        local.x *= mix(1.0, ((1.0 / v.edge.w) * 140.0 / 196.0) / (aspect / v.edge.z), lift);
+        bool banknote = u.effect.x == 11.0 || u.effect.x == 12.0;
+        float paperAspect = banknote ? 1024.0 / 448.0 : 140.0 / 196.0;
+        local.x *= mix(1.0, ((1.0 / v.edge.w) * paperAspect) / (aspect / v.edge.z), lift);
+        if (banknote) {
+            // A gentle paper curl travels across the note as it takes flight.
+            local.z += sin(v.edge.x * 6.2831853 + t * 3.0 + v.motion.y * 4.0) * 0.013 * lift;
+        }
         float sign = fmod(v.axis.w, 2.0) < 1.0 ? 1.0 : -1.0;
         float turnY = (extra ? 3.14159265 : 0.0) + sign * t * (3.3 + v.motion.y * 2.4);
         float turnX = t * v.axis.x * 2.0;
@@ -161,9 +167,11 @@ enum DepthShaders {
                                  texture2d<float> faces [[texture(1)]],
                                  texture2d<float> backs [[texture(2)]]) {
         constexpr sampler linearSampler(filter::linear, mip_filter::linear, address::clamp_to_edge);
-        float2 local = (in.uv - 0.5) * float2(140.0 / 196.0, 1.0);
-        float radius = 0.032 * in.lift;
-        float2 q = abs(local) - (float2(70.0 / 196.0, 0.5) - radius);
+        bool banknote = u.effect.x == 11.0 || u.effect.x == 12.0;
+        float paperAspect = banknote ? 1024.0 / 448.0 : 140.0 / 196.0;
+        float2 local = (in.uv - 0.5) * float2(paperAspect, 1.0);
+        float radius = (banknote ? 0.006 : 0.032) * in.lift;
+        float2 q = abs(local) - (float2(paperAspect * 0.5, 0.5) - radius);
         float sdf = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
         if (sdf > 0.00001) discard_fragment();
         float3 normal = normalize(in.normal);
@@ -178,7 +186,7 @@ enum DepthShaders {
                 tex.y = 1.0 - tex.y;
                 colour = picture.sample(linearSampler, tex, level(0.0)).rgb;
             }
-            float edge = min(min(in.uv.x, 1.0 - in.uv.x) * 140.0 / 196.0, min(in.uv.y, 1.0 - in.uv.y));
+            float edge = min(min(in.uv.x, 1.0 - in.uv.x) * paperAspect, min(in.uv.y, 1.0 - in.uv.y));
             float border = (1.0 - smoothstep(0.006, 0.012, edge)) * in.lift;
             colour = mix(colour, float3(0.96, 0.94, 0.89), border);
         } else {
@@ -186,9 +194,9 @@ enum DepthShaders {
             float2 cell = float2(index % 13, index / 13);
             // Mirror the front UV because it is on the opposite side of the paper.
             float2 uv = float2(1.0 - in.uv.x, in.uv.y);
-            float2 inset = 0.5 / float2(140.0, 196.0);
+            float2 inset = 0.5 / (banknote ? float2(1024.0, 448.0) : float2(140.0, 196.0));
             uv = clamp(uv, inset, 1.0 - inset);
-            colour = faces.sample(linearSampler, (cell + uv) / float2(13.0, 4.0)).rgb;
+            colour = faces.sample(linearSampler, banknote ? uv : (cell + uv) / float2(13.0, 4.0)).rgb;
         }
         float diffuse = 0.48 + 0.52 * abs(normal.z);
         colour *= mix(1.0, diffuse, in.lift);

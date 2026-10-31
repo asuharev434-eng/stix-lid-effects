@@ -55,6 +55,25 @@ struct EffectPixelTests {
         let backTexture = try #require(device.makeTexture(descriptor: backDescriptor))
         let backData = try #require(back.dataProvider?.data)
         backTexture.replace(region: MTLRegionMake2D(0, 0, back.width, back.height), mipmapLevel: 0, withBytes: CFDataGetBytePtr(backData)!, bytesPerRow: back.bytesPerRow)
+        var noteTextures: [EffectStyle: (MTLTexture, MTLTexture)] = [:]
+        for style in [EffectStyle.rubles, .dollars] {
+            let currency = try #require(style.banknoteCurrency)
+            var textures: [MTLTexture] = []
+            for reverse in [false, true] {
+                let image = try #require(BanknoteArtwork.makeImage(currency: currency, reverse: reverse))
+                let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm_srgb, width: image.width, height: image.height, mipmapped: false)
+                descriptor.storageMode = .shared; descriptor.usage = .shaderRead
+                let texture = try #require(device.makeTexture(descriptor: descriptor))
+                let data = try #require(image.dataProvider?.data)
+                texture.replace(region: MTLRegionMake2D(0, 0, image.width, image.height), mipmapLevel: 0, withBytes: CFDataGetBytePtr(data)!, bytesPerRow: image.bytesPerRow)
+                textures.append(texture)
+            }
+            noteTextures[style] = (textures[0], textures[1])
+        }
+        let noteVertices = CardDeckMesh.vertices(aspect: 1, columns: 8, rows: 6)
+        let noteBuffer = try #require(noteVertices.withUnsafeBytes { device.makeBuffer(bytes: $0.baseAddress!, length: $0.count, options: .storageModeShared) })
+        let rearNotes = noteVertices.filter { $0.motion.z > 0 }
+        let rearNoteBuffer = try #require(rearNotes.withUnsafeBytes { device.makeBuffer(bytes: $0.baseAddress!, length: $0.count, options: .storageModeShared) })
         let depthDescriptor = MTLDepthStencilDescriptor()
         depthDescriptor.depthCompareFunction = .lessEqual
         depthDescriptor.isDepthWriteEnabled = true
@@ -106,7 +125,7 @@ struct EffectPixelTests {
             pass.colorAttachments[0].loadAction = .clear
             pass.colorAttachments[0].storeAction = .store
             pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
-            let isMesh = style == .shatter || style == .cards
+            let isMesh = style == .shatter || style.isFlyingPaper
             if isMesh {
                 let depthTextureDescriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .depth32Float, width: size, height: size, mipmapped: false)
                 depthTextureDescriptor.storageMode = .private
@@ -119,10 +138,10 @@ struct EffectPixelTests {
             }
             let command = try #require(queue.makeCommandBuffer())
             let encoder = try #require(command.makeRenderCommandEncoder(descriptor: pass))
-            encoder.setRenderPipelineState(style == .cards ? cardPipeline : style == .shatter ? glassPipeline : pipeline)
+            encoder.setRenderPipelineState(style.isFlyingPaper ? cardPipeline : style == .shatter ? glassPipeline : pipeline)
             if isMesh {
                 encoder.setDepthStencilState(depthState)
-                encoder.setVertexBuffer(style == .cards ? (rearOnly ? rearBuffer : cardBuffer) : glassBuffer, offset: 0, index: 0)
+                encoder.setVertexBuffer(style.banknoteCurrency != nil ? (rearOnly ? rearNoteBuffer : noteBuffer) : style == .cards ? (rearOnly ? rearBuffer : cardBuffer) : glassBuffer, offset: 0, index: 0)
                 uniforms.withUnsafeMutableBytes { encoder.setVertexBytes($0.baseAddress!, length: $0.count, index: 1) }
             }
             uniforms.withUnsafeMutableBytes { encoder.setFragmentBytes($0.baseAddress!, length: $0.count, index: 0) }
@@ -131,7 +150,11 @@ struct EffectPixelTests {
                 encoder.setFragmentTexture(atlasTexture, index: 1)
                 encoder.setFragmentTexture(backTexture, index: 2)
             }
-            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: style == .cards ? (rearOnly ? rearVertices.count : cardVertices.count) : style == .shatter ? vertices.count : 3)
+            if let note = noteTextures[style] {
+                encoder.setFragmentTexture(note.0, index: 1)
+                encoder.setFragmentTexture(note.1, index: 2)
+            }
+            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: style.banknoteCurrency != nil ? (rearOnly ? rearNotes.count : noteVertices.count) : style == .cards ? (rearOnly ? rearVertices.count : cardVertices.count) : style == .shatter ? vertices.count : 3)
             encoder.endEncoding()
             command.commit()
             command.waitUntilCompleted()
@@ -142,13 +165,24 @@ struct EffectPixelTests {
         }
         if let exportDirectory {
             try FileManager.default.createDirectory(atPath: exportDirectory, withIntermediateDirectories: true)
-            for style in [EffectStyle.shatter, .cards, .paintRoller] {
+            for style in [EffectStyle.shatter, .cards, .paintRoller, .rubles, .dollars] {
                 for (index, progress) in [Float(0), 0.12, 0.26, 0.43, 0.60, 0.76].enumerated() {
                     let bytes = try render(style, progress)
                     let provider = try #require(CGDataProvider(data: Data(bytes) as CFData))
                     let image = try #require(CGImage(width: size, height: size, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: size * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue), provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
-                    let name = style == .cards ? "cards" : style == .paintRoller ? "roller" : "glass"
+                    let name = style == .cards ? "cards" : style == .paintRoller ? "roller" : style == .rubles ? "rubles" : style == .dollars ? "dollars" : "glass"
                     let url = URL(fileURLWithPath: exportDirectory).appendingPathComponent("\(name)-\(index).png")
+                    let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil))
+                    CGImageDestinationAddImage(destination, image, nil)
+                    #expect(CGImageDestinationFinalize(destination))
+                }
+            }
+            for style in [EffectStyle.rubles, .dollars] {
+                for reverse in [false, true] {
+                    let currency = try #require(style.banknoteCurrency)
+                    let image = try #require(BanknoteArtwork.makeImage(currency: currency, reverse: reverse))
+                    let name = style == .rubles ? "rubles" : "dollars"
+                    let url = URL(fileURLWithPath: exportDirectory).appendingPathComponent("\(name)-\(reverse ? "back" : "front").png")
                     let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil))
                     CGImageDestinationAddImage(destination, image, nil)
                     #expect(CGImageDestinationFinalize(destination))
@@ -172,6 +206,12 @@ struct EffectPixelTests {
             let ordinaryCards = try render(.cards, phase, rearOnly: true)
             let differentScreen = try render(.cards, phase, rearOnly: true, changedDesktop: true)
             #expect(ordinaryCards == differentScreen, "Additional cards must not sample any desktop pixels")
+        }
+        for style in [EffectStyle.rubles, .dollars] {
+            #expect(try render(style, 0) != render(style, 0, changedDesktop: true))
+            for phase: Float in [0, 0.3, 0.5] {
+                #expect(try render(style, phase, rearOnly: true) == render(style, phase, rearOnly: true, changedDesktop: true))
+            }
         }
         let flyingCards = try render(.cards, 0.43)
         let visibleCards = stride(from: 0, to: flyingCards.count, by: 4).filter {

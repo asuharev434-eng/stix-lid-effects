@@ -7,8 +7,10 @@ enum CardDeckMesh {
     static let rows = 4
     static let screenCount = columns * rows
     static let count = screenCount * 4
-    static func vertices(aspect: Double) -> [GlassVertex] {
-        guard aspect.isFinite, aspect > 0 else { return [] }
+    static func vertices(aspect: Double, columns: Int = columns, rows: Int = rows) -> [GlassVertex] {
+        guard aspect.isFinite, aspect > 0, (2...32).contains(columns), (1...32).contains(rows) else { return [] }
+        let screenCount = columns * rows
+        let count = screenCount * 4
         var result: [GlassVertex] = []
         let corners: [SIMD2<Float>] = [SIMD2(0, 0), SIMD2(1, 0), SIMD2(1, 1), SIMD2(0, 0), SIMD2(1, 1), SIMD2(0, 1)]
         for id in 0..<count {
