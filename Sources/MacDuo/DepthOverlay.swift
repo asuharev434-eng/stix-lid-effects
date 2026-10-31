@@ -58,6 +58,7 @@ struct DepthGeometry {
 /// The settings that shape one frame.
 struct DepthTuning {
     var effectStyle: EffectStyle = .original
+    var isManualBlackout = false
     var viewingDistance: Double = 2.7
     var recession: Double = 2
     var blurEvenness: Double = 0.4
@@ -195,12 +196,14 @@ final class DepthOverlay {
         on screen: NSScreen,
         startAngle: Double,
         tuning: DepthTuning,
-        fadeIn: TimeInterval
+        fadeIn: TimeInterval,
+        allowExternalDisplay: Bool = false
     ) {
         dismiss(animated: false)
         // The screenshot's screen can be stale once the lid shuts into
         // clamshell mode, so no window goes up at its old frame.
-        guard let displayID = screen.displayID, displayID == NSScreen.builtIn?.displayID else { return }
+        guard let displayID = screen.displayID,
+              allowExternalDisplay || displayID == NSScreen.builtIn?.displayID else { return }
         guard warmUp(), let renderer else { return }
         self.startAngle = startAngle
         self.tuning = tuning
@@ -290,7 +293,8 @@ final class DepthOverlay {
             maxBlurRadius: tuning.maxBlurRadius,
             maxDim: tuning.maxDim,
             effectStyle: tuning.effectStyle,
-            progress: progress
+            progress: progress,
+            blackout: tuning.isManualBlackout
         )
     }
 
@@ -319,6 +323,16 @@ final class DepthOverlay {
                 window.close()
             }
         }
+    }
+
+    /// Releases the presence window too when a short-lived manual overlay ends.
+    func shutdown() {
+        dismiss(animated: false)
+        presenceWindow?.orderOut(nil)
+        presenceWindow?.close()
+        presenceWindow = nil
+        renderer = nil
+        hasTriedToBuildRenderer = false
     }
 
     /// Takes down a window that is still fading.

@@ -50,7 +50,7 @@ struct EffectPixelTests {
         mipCommand.commit()
         mipCommand.waitUntilCompleted()
 
-        func render(_ style: EffectStyle, _ progress: Float) throws -> [UInt8] {
+        func render(_ style: EffectStyle, _ progress: Float, blackout: Bool = false) throws -> [UInt8] {
             let outputDescriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: size, height: size, mipmapped: false)
             outputDescriptor.storageMode = .shared
             outputDescriptor.usage = [.renderTarget]
@@ -59,7 +59,7 @@ struct EffectPixelTests {
             var uniforms: [SIMD4<Float>] = [
                 SIMD4(1, 0, 0, 0), SIMD4(0, 1, 0, 0), SIMD4(0, 0, 1, 0),
                 SIMD4(64, 64, 0, 0), SIMD4(64, 64, 100, 0),
-                SIMD4(0, 0, 1, 6), SIMD4(0, 0, 1, 0), SIMD4(Float(style.rawValue), progress, 0, 0)
+                SIMD4(0, 0, 1, 6), SIMD4(0, 0, 1, 0), SIMD4(Float(style.rawValue), progress, blackout ? 1 : 0, 0)
             ]
             let pass = MTLRenderPassDescriptor()
             pass.colorAttachments[0].texture = output
@@ -79,7 +79,16 @@ struct EffectPixelTests {
             result.withUnsafeMutableBytes { output.getBytes($0.baseAddress!, bytesPerRow: size * 4, from: MTLRegionMake2D(0, 0, size, size), mipmapLevel: 0) }
             return result
         }
+        for style in EffectStyle.allCases {
+            let black = try render(style, 1, blackout: true)
+            #expect(black.enumerated().allSatisfy { $0.offset % 4 == 3 ? $0.element == 255 : $0.element == 0 }, "Manual effect must end fully black: \(style.title)")
+        }
         let reference = try render(.original, 0)
+        let cracking = try render(.shatter, 0.15)
+        #expect(cracking != reference)
+        #expect(cracking.enumerated().contains { $0.offset % 4 != 3 && $0.element > 0 })
+        let falling = try render(.shatter, 0.8)
+        #expect(falling != cracking)
         var midpoints: [[UInt8]] = []
         for style in EffectStyle.allCases where style != .original {
             #expect(try render(style, 0) == reference, "Opening must return to a clear desktop: \(style.title)")

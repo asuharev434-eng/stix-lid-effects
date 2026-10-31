@@ -24,6 +24,23 @@ enum DepthShaders {
         float4 effect;           // style, progress, reserved, reserved
     };
 
+    float fractureHash(float2 p) {
+        return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453);
+    }
+    float2 fractureVertex(float2 index, float2 grid) {
+        float2 jitter = float2(fractureHash(index), fractureHash(index + 31.7)) - 0.5;
+        if (index.x == 0.0 || index.x == grid.x) jitter.x = 0.0;
+        if (index.y == 0.0 || index.y == grid.y) jitter.y = 0.0;
+        return (index + jitter * 0.5) / grid;
+    }
+    float3 fractureBarycentric(float2 p, float2 a, float2 b, float2 c) {
+        float2 v0 = b - a, v1 = c - a, v2 = p - a;
+        float det = v0.x * v1.y - v1.x * v0.y;
+        float u = (v2.x * v1.y - v1.x * v2.y) / det;
+        float v = (v0.x * v2.y - v2.x * v0.y) / det;
+        return float3(1.0 - u - v, u, v);
+    }
+
     vertex float4 depthVertex(uint vertexID [[vertex_id]]) {
         const float2 corners[3] = { float2(-1.0, -3.0), float2(-1.0, 1.0), float2(3.0, 1.0) };
         return float4(corners[vertexID], 0.0, 1.0);
@@ -49,6 +66,60 @@ enum DepthShaders {
 
         int style = int(uniforms.effect.x);
         float p = clamp(uniforms.effect.y, 0.0, 1.0);
+        float blackoutFade = uniforms.effect.z > 0.5 ? 1.0 - smoothstep(0.82, 1.0, p) : 1.0;
+        if (style == 8 && p > 0.0001) {
+            float2 uv = position.xy / (screenSize * pixelScale);
+            float2 grid = float2(10.0, 7.0);
+            float drop = smoothstep(0.26, 1.0, p);
+            float gravity = drop * drop * 1.65;
+            int2 guess = int2(floor((uv - float2(0.0, gravity)) * grid));
+            float2 found = float2(-1.0);
+            float crack = 0.0;
+            float shardLight = 1.0;
+            // Jittered shared vertices form contiguous, irregular triangular glass shards.
+            for (int y = -1; y <= 1; ++y) {
+                for (int x = -1; x <= 1; ++x) {
+                    int2 cell = guess + int2(x, y);
+                    if (any(cell < int2(0)) || any(cell >= int2(grid))) continue;
+                    float2 ij = float2(cell);
+                    float2 a = fractureVertex(ij, grid);
+                    float2 b = fractureVertex(ij + float2(1, 0), grid);
+                    float2 c = fractureVertex(ij + float2(1, 1), grid);
+                    float2 d = fractureVertex(ij + float2(0, 1), grid);
+                    for (int triangle = 0; triangle < 2; ++triangle) {
+                        float2 v0 = a;
+                        float2 v1 = triangle == 0 ? b : c;
+                        float2 v2 = triangle == 0 ? c : d;
+                        float seed = fractureHash(ij + float2(triangle * 17.0, 9.0));
+                        float2 pivot = (v0 + v1 + v2) / 3.0;
+                        float angle = (seed - 0.5) * drop * 2.4;
+                        float cs = cos(angle), sn = sin(angle);
+                        float2 displacement = float2((seed - 0.5) * 0.065 * drop, gravity);
+                        float2 local = uv - pivot - displacement;
+                        float2 source = pivot + float2(cs * local.x + sn * local.y, -sn * local.x + cs * local.y);
+                        float3 bary = fractureBarycentric(source, v0, v1, v2);
+                        if (all(bary >= float3(-0.00001))) {
+                            found = source;
+                            float edge = min(bary.x, min(bary.y, bary.z));
+                            float propagation = smoothstep(0.0, 0.24, p) * 1.5;
+                            float reached = 1.0 - smoothstep(propagation - 0.05, propagation, distance(source, float2(0.52, 0.38)));
+                            crack = (1.0 - smoothstep(0.004, 0.022, edge)) * reached;
+                            shardLight = 1.0 - drop * (0.15 + seed * 0.35);
+                        }
+                    }
+                }
+            }
+            if (found.x < 0.0) return float4(0, 0, 0, 1);
+            float2 point = float2(found.x * screenSize.x, (1.0 - found.y) * screenSize.y);
+            float2 tex = (point - paddedOrigin) / paddedSize;
+            tex.y = 1.0 - tex.y;
+            float3 rgb = picture.sample(linearSampler, tex, level(0.0)).rgb * shardLight;
+            // Dark split with a narrow cool glint, rather than a white screen wash.
+            rgb = mix(rgb, float3(0.015, 0.02, 0.03), crack * 0.8);
+            rgb += crack * float3(0.12, 0.17, 0.22) * (1.0 - drop * 0.5);
+            rgb *= (1.0 - smoothstep(0.93, 1.0, p)) * blackoutFade;
+            return float4(rgb, 1.0);
+        }
         if (style != 0) {
             float2 uv = position.xy / (screenSize * pixelScale);
             float2 q = uv;
@@ -106,7 +177,7 @@ enum DepthShaders {
             rgb *= opacity;
             if (style == 2) rgb = mix(rgb, float3(0.4, 0.46, 0.52), p * 0.12);
             rgb += glow * float3(0.45, 0.7, 1.0);
-            return float4(rgb, 1.0);
+            return float4(rgb * blackoutFade, 1.0);
         }
 
         // Fragment coordinates are pixels with y down; the geometry is points
@@ -140,7 +211,7 @@ enum DepthShaders {
         // The sample is linear light. Raising the factor to 2.2 keeps the
         // dimming setting a fraction of the encoded brightness.
         colour.rgb *= pow(1.0 - maxDim * fade, 2.2);
-        return float4(colour.rgb, 1.0);
+        return float4(colour.rgb * blackoutFade, 1.0);
     }
     """
 }

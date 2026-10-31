@@ -1,7 +1,7 @@
 import Foundation
 
 enum EffectStyle: Int, CaseIterable, Identifiable {
-    case original, television, frost, waves, paper, particles, edgeLight, cinema
+    case original, television, frost, waves, paper, particles, edgeLight, cinema, shatter
     var id: Int { rawValue }
     var title: String {
         switch self {
@@ -13,6 +13,7 @@ enum EffectStyle: Int, CaseIterable, Identifiable {
         case .particles: return "Пыль и частицы"
         case .edgeLight: return "Свет по краям"
         case .cinema: return "Киношное открытие"
+        case .shatter: return "Трещины и осколки"
         }
     }
     var symbol: String {
@@ -25,6 +26,7 @@ enum EffectStyle: Int, CaseIterable, Identifiable {
         case .particles: return "sparkles"
         case .edgeLight: return "light.max"
         case .cinema: return "film"
+        case .shatter: return "burst"
         }
     }
     static func progress(_ value: Double) -> Double {

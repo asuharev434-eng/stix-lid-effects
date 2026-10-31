@@ -3,22 +3,24 @@
 Native MacBook lid effects, based on [Mac Duo by Makito](https://github.com/sumimakito/Mac-Duo), Apache 2.0. macOS 14 or newer.
 
 - Mini control window from the menu bar.
-- Seven selectable effects: CRT, frosted glass, waves, paper fold, particles, edge light and cinematic fade; original Duo remains available.
+- Eight selectable effects: CRT, frosted glass, waves, paper fold, particles, edge light, cinematic fade, and cracking glass with falling shards; original Duo remains available.
 - **Option+B** toggles live Gaussian blur of real windows on every connected display (15 fps, neutral colour, 14 pt radius). **Escape does not dismiss it.** Images stay in memory; they are never saved or uploaded. This is a visual effect, not a screen lock.
+- **Option+M** plays the selected effect across every display and holds a fully black screen until Option+M is pressed again. Repeat the shortcut during preparation or animation to cancel immediately. While black, Option+B does not reveal the screen. Black windows consume mouse clicks and require no ongoing capture or GPU animation.
+- The cracking-glass effect reveals cracks spreading from an impact point, then rotates irregular triangular shards as they fall away.
 - Login startup via SMAppService, with an on/off switch.
 - Only the overlay windows are excluded from capture; the control panel and other app windows remain visible under the blur.
-- Sleep and display changes dismiss manual blur to prevent stale overlays.
+- Sleep and display changes dismiss manual blur to prevent stale overlays. Option+M blackout remains latched and covers the updated display layout until toggled off.
 - Lid effects require a built-in lid angle sensor. Manual blur works independently.
 
 ## Build and install
 
 Run `swift test`, then `./build.sh`. Copy `build/STIX Lid Effects.app` into Applications and launch. For a stable signed local build, set `SIGN_IDENTITY` to your Developer ID identity before running the build script. Grant Screen Recording permission to **STIX Lid Effects**, then restart it if macOS requests this. Local builds are not notarized automatically.
 
-The app registers Option+B using Carbon. No Accessibility permission or key logging is needed. If another app has reserved this shortcut, the mini window reports the conflict. Close the mini window to leave the menu bar utility running; use its Quit button to exit.
+The app registers Option+B and Option+M using Carbon, with key-release tracking to prevent repeated toggles while a key is held. No Accessibility permission or key logging is needed. If another app has reserved this shortcut, the mini window reports the conflict. Close the mini window to leave the menu bar utility running; use its Quit button to exit.
 
 ## Verification
 
-`swift test` covers the existing lid policies and localization, progress validation, shader compilation and GPU-rendered frames for all effects. Pixel tests verify a clear desktop at zero progress and distinct intermediate effects.
+`swift test` covers the existing lid policies and localization, progress validation, shader compilation and GPU-rendered frames for all effects. Pixel tests verify a clear desktop at zero progress, distinct intermediate effects, visible cracking/falling stages and completely black final frames for every manual effect. State tests verify cancellation during preparation/animation and indefinite black-screen hold until the next toggle.
 
 ## Upstream documentation
 

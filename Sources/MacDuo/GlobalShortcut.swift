@@ -1,41 +1,61 @@
 import AppKit
 import Carbon
 
-/// Carbon reserves only Option+B; no key logging or Accessibility access.
+/// Carbon reserves Option+B and Option+M; no key logging or Accessibility access.
 @MainActor
 final class GlobalShortcut {
     private var handler: EventHandlerRef?
-    private var hotKey: EventHotKeyRef?
+    private var hotKeys: [EventHotKeyRef] = []
+    private var pressedIDs: Set<UInt32> = []
+    private(set) var effectAvailable = false
     var action: (() -> Void)?
+    var effectAction: (() -> Void)?
     private(set) var error: String?
 
     func register() {
-        var type = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        var types = [
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
+        ]
         let context = Unmanaged.passUnretained(self).toOpaque()
         let installed = InstallEventHandler(GetApplicationEventTarget(), { _, event, context in
             guard let context, let event else { return OSStatus(eventNotHandledErr) }
             var identifier = EventHotKeyID()
             let status = GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &identifier)
-            guard status == noErr, identifier.signature == 0x53544958, identifier.id == 1 else { return OSStatus(eventNotHandledErr) }
+            guard status == noErr, identifier.signature == 0x53544958, (identifier.id == 1 || identifier.id == 2) else { return OSStatus(eventNotHandledErr) }
             MainActor.assumeIsolated {
-                Unmanaged<GlobalShortcut>.fromOpaque(context).takeUnretainedValue().action?()
+                let owner = Unmanaged<GlobalShortcut>.fromOpaque(context).takeUnretainedValue()
+                if GetEventKind(event) == UInt32(kEventHotKeyReleased) {
+                    owner.pressedIDs.remove(identifier.id)
+                    return
+                }
+                guard owner.pressedIDs.insert(identifier.id).inserted else { return }
+                if identifier.id == 1 { owner.action?() }
+                else { owner.effectAction?() }
             }
             return noErr
-        }, 1, &type, context, &handler)
+        }, 2, &types, context, &handler)
         guard installed == noErr else {
             error = "Не удалось подключить горячую клавишу (\(installed))."
             return
         }
-        let result = RegisterEventHotKey(UInt32(kVK_ANSI_B), UInt32(optionKey), EventHotKeyID(signature: 0x53544958, id: 1), GetApplicationEventTarget(), 0, &hotKey)
-        if result != noErr {
-            error = "⌥B занято другим приложением (\(result))."
+        for (key, id, label) in [(kVK_ANSI_B, UInt32(1), "⌥B"), (kVK_ANSI_M, UInt32(2), "⌥M")] {
+            var reference: EventHotKeyRef?
+            let result = RegisterEventHotKey(UInt32(key), UInt32(optionKey), EventHotKeyID(signature: 0x53544958, id: id), GetApplicationEventTarget(), 0, &reference)
+            if result == noErr, let reference {
+                hotKeys.append(reference)
+                if id == 2 { effectAvailable = true }
+            }
+            else { error = [error, "\(label) занято другим приложением (\(result))."].compactMap { $0 }.joined(separator: "\n") }
         }
     }
 
     func stop() {
-        if let hotKey { UnregisterEventHotKey(hotKey) }
+        for hotKey in hotKeys { UnregisterEventHotKey(hotKey) }
         if let handler { RemoveEventHandler(handler) }
-        hotKey = nil
+        hotKeys.removeAll()
+        pressedIDs.removeAll()
+        effectAvailable = false
         handler = nil
     }
 }

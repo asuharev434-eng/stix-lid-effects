@@ -4,9 +4,12 @@ import SwiftUI
 struct EffectsPanel: View {
     @ObservedObject var preferences: Preferences
     @ObservedObject var controller: LidController
+    @ObservedObject var manualEffect: ManualEffectController
     @ObservedObject var blur: ManualBlurController
     @ObservedObject var startup: LoginStartup
     let shortcutError: String?
+    let canUseManualEffect: Bool
+    let onToggleEffect: () -> Void
     let onAdvanced: () -> Void
     @State private var permission = CGPreflightScreenCaptureAccess()
 
@@ -33,7 +36,7 @@ struct EffectsPanel: View {
                     Toggle("Анимация крышки", isOn: $preferences.isEnabled).toggleStyle(.switch).controlSize(.small)
                     Spacer()
                     Button { controller.runPreview() } label: { Image(systemName: "play.fill"); Text("Показать") }
-                        .disabled(!permission || !preferences.isEnabled || blur.isActive || blur.isPreparing || !controller.isSensorAvailable)
+                        .disabled(!permission || !preferences.isEnabled || blur.isActive || blur.isPreparing || manualEffect.isActive || !controller.isSensorAvailable)
                 }
             }
             Divider()
@@ -46,7 +49,17 @@ struct EffectsPanel: View {
                     Spacer()
                     Text("⌥B").font(.system(.body, design: .monospaced)).foregroundStyle(.secondary)
                 }.padding(.vertical, 5)
-            }.buttonStyle(.bordered)
+            }.buttonStyle(.bordered).disabled(manualEffect.isActive)
+            Button(action: onToggleEffect) {
+                HStack {
+                    Image(systemName: "moon.fill")
+                    Text(manualEffect.isActive ? "Вернуть изображение" : "Эффект и чёрный экран")
+                    Spacer()
+                    Text("⌥M").font(.system(.body, design: .monospaced)).foregroundStyle(.secondary)
+                }.padding(.vertical, 5)
+            }.buttonStyle(.bordered).disabled(!canUseManualEffect)
+            Text("⌥M проигрывает выбранный эффект и оставляет экран чёрным до повторного ⌥M.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Text("Живое размытие окон. Повторное ⌥B возвращает резкость. Это не блокировка Mac.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Toggle("Запускать при входе", isOn: Binding(get: { startup.enabled }, set: { startup.setEnabled($0) }))
@@ -57,7 +70,7 @@ struct EffectsPanel: View {
                     if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") { NSWorkspace.shared.open(url) }
                 }
             }
-            if let message = blur.error ?? shortcutError ?? startup.message {
+            if let message = manualEffect.error ?? blur.error ?? shortcutError ?? startup.message {
                 Text(message).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
             Divider()
@@ -80,11 +93,11 @@ struct EffectsPanel: View {
 final class EffectsWindowController {
     private let window: NSWindow
     private var advanced: NSWindow?
-    init(preferences: Preferences, controller: LidController, blur: ManualBlurController, startup: LoginStartup, shortcutError: String?) {
+    init(preferences: Preferences, controller: LidController, blur: ManualBlurController, manualEffect: ManualEffectController, startup: LoginStartup, shortcutError: String?, canUseManualEffect: Bool, onToggleEffect: @escaping () -> Void) {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 480), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "STIX Lid Effects"
         window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: EffectsPanel(preferences: preferences, controller: controller, blur: blur, startup: startup, shortcutError: shortcutError, onAdvanced: { [weak self] in
+        window.contentView = NSHostingView(rootView: EffectsPanel(preferences: preferences, controller: controller, manualEffect: manualEffect, blur: blur, startup: startup, shortcutError: shortcutError, canUseManualEffect: canUseManualEffect, onToggleEffect: onToggleEffect, onAdvanced: { [weak self] in
             self?.showAdvanced(preferences: preferences, controller: controller)
         }))
         window.center()

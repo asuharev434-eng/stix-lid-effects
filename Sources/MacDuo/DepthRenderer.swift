@@ -413,7 +413,8 @@ final class DepthRenderer {
         maxBlurRadius: Double,
         maxDim: Double,
         effectStyle: EffectStyle = .original,
-        progress: Double = 0
+        progress: Double = 0,
+        blackout: Bool = false
     ) {
         guard let commands = queue.makeCommandBuffer() else { return }
         absorbPending(into: commands)
@@ -448,7 +449,7 @@ final class DepthRenderer {
             ),
             shape: SIMD4(Float(hingeFloor), Float(maxDim), Float(pixelScale), maxLevel),
             light: SIMD4(Float(dimHingeFloor), Float(dimStrength), Float(dimReach), 0),
-            effect: SIMD4(Float(effectStyle.rawValue), Float(EffectStyle.progress(progress)), 0, 0)
+            effect: SIMD4(Float(effectStyle.rawValue), Float(EffectStyle.progress(progress)), blackout ? 1 : 0, 0)
         )
 
         let pass = MTLRenderPassDescriptor()
