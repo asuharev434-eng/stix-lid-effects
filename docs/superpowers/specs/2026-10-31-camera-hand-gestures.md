@@ -10,4 +10,4 @@ UI: explicit camera toggle, gesture mapping, current recognition status and hold
 
 Files: HandGesture.swift, CameraGestureCapture.swift, CameraGestureController.swift, EffectsPanel.swift, AppDelegate.swift, camera manifest/entitlements and build.sh.
 
-Before camera permission: 37 tests pass, including mirror/rotation recognition, fist/low-confidence/small-hand rejection, one-shot latching/rearming and video-only permissions. Signed release 0.6.0 installed, camera entitlement verified, new camera toggle visible and off. Live camera and real hand checks remain after user approval.
+Before camera permission: 37 tests pass, including mirror/rotation recognition, fist/low-confidence/small-hand rejection, one-shot latching/rearming and video-only permissions. Signed release 0.6.0 installed, camera entitlement verified, new camera toggle visible and off. Live verification completed after user approval: the installed app received camera frames and reported hand detections. User physically tested pinch and open palm and confirmed that both work. Camera left enabled as requested; hotkeys retained.
