@@ -15,7 +15,7 @@ macOS 14+, Apple silicon; no screenshot persistence or uploads; preserve upstrea
 
 ### 2. Manual blur and controls
 - [x] Register Option+B using Carbon only; report registration conflicts.
-- [x] Capture all screens with ScreenCaptureKit excluding this app; use Core Image Gaussian blur with clamped edges.
+- [x] Stream all screens at 15 fps with ScreenCaptureKit excluding only overlay windows; use neutral 14-point Core Image Gaussian blur with clamped edges.
 - [x] Cancel captures on toggle-off, sleep and screen changes; suppress lid effects during blur.
 - [x] Add compact window, effect picker, preview, startup and error states using existing native SwiftUI patterns.
 
@@ -26,3 +26,6 @@ macOS 14+, Apple silicon; no screenshot persistence or uploads; preserve upstrea
 
 ## Verification limits
 GPU pixel tests and the sensor probe passed on the target Mac. UI shows startup enabled and Screen Recording granted after restart. Automated shortcut input was blocked by concurrent user interaction; manual Option+B validation remains to be confirmed.
+
+## 0.2.1 correction
+User reported a milky white patch instead of blurred windows. Include own UI in capture, preserve window colours and silhouettes, and stream live frames. Synthetic window pixel test passes; installed app reports live blur ready on the target display.

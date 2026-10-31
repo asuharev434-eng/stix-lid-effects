@@ -4,8 +4,9 @@ Native MacBook lid effects, based on [Mac Duo by Makito](https://github.com/sumi
 
 - Mini control window from the menu bar.
 - Seven selectable effects: CRT, frosted glass, waves, paper fold, particles, edge light and cinematic fade; original Duo remains available.
-- **Option+B** toggles a fully blurred held image on every connected display. **Escape does not dismiss it.** Images stay in memory; they are never saved or uploaded. This is a visual effect, not a screen lock.
+- **Option+B** toggles live Gaussian blur of real windows on every connected display (15 fps, neutral colour, 14 pt radius). **Escape does not dismiss it.** Images stay in memory; they are never saved or uploaded. This is a visual effect, not a screen lock.
 - Login startup via SMAppService, with an on/off switch.
+- Only the overlay windows are excluded from capture; the control panel and other app windows remain visible under the blur.
 - Sleep and display changes dismiss manual blur to prevent stale overlays.
 - Lid effects require a built-in lid angle sensor. Manual blur works independently.
 

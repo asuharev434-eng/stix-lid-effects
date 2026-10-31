@@ -47,7 +47,7 @@ struct EffectsPanel: View {
                     Text("⌥B").font(.system(.body, design: .monospaced)).foregroundStyle(.secondary)
                 }.padding(.vertical, 5)
             }.buttonStyle(.bordered)
-            Text("Повторное ⌥B возвращает изображение. Это визуальный эффект, не блокировка Mac.")
+            Text("Живое размытие окон. Повторное ⌥B возвращает резкость. Это не блокировка Mac.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Toggle("Запускать при входе", isOn: Binding(get: { startup.enabled }, set: { startup.setEnabled($0) }))
                 .toggleStyle(.switch).controlSize(.small)

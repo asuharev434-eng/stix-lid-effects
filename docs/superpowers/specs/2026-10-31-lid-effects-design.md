@@ -2,7 +2,7 @@
 
 Approved in chat: seven selectable lid effects, Option+B toggles blur on all displays; Escape is unchanged, compact control window and enabled login startup.
 
-Extend the existing native Swift/AppKit/Metal application. Keep original depth effect as an eighth choice. Use Carbon registered hotkeys without Accessibility permission. Manual blur captures each display into memory, Gaussian-blurs a held image and covers every display; it is a visual convenience, not a screen lock. Stop lid capture during manual blur. Cancel pending captures on dismissal, sleep and display changes. No screenshots are saved or transmitted.
+Extend the existing native Swift/AppKit/Metal application. Keep original depth effect as an eighth choice. Use Carbon registered hotkeys without Accessibility permission. Manual blur streams each display into memory at up to 15 fps, applies a neutral 14-point Gaussian blur and covers every display; it is a visual convenience, not a screen lock. Stop lid capture during manual blur. Cancel pending captures on dismissal, sleep and display changes. No screenshots are saved or transmitted. Exclude only the overlay window IDs from capture; include the control panel and settings windows.
 
 Mini window uses the existing native SwiftUI controls and spacing, with Russian effect names, clear selection, preview, permission/error status and startup toggle. System settings are the reference for native switches; existing SettingsView is the layout reference. Retain keyboard focus and accessible labels.
 
