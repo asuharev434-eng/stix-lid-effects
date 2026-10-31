@@ -9,3 +9,9 @@ Verification: existing cards unchanged; primary layer covers desktop exactly; al
 ## Verification
 
 42 local tests in 14 suites passed, including GPU rendering at 512×512, distinct/opaque front and back artwork, banknote layer coverage and desktop-independent rear layers. Inspected synthetic banknote flight frames. Developer ID release 0.9.0 built, signature verified, installed and launched; both new effects are present in the mini-window and previews were exercised. Camera gestures are restored after UI verification.
+
+## 0.9.1 — photographic image replacement
+
+The user rejected the illustrative drawings. Replace them entirely with unchanged JPEGs downloaded from the Bank of Russia (5,000 rubles, 2010 modification) and the U.S. Currency Education Program ($100, 2013-present). Bundle both sides, preserve source markings and per-currency aspect ratios. See `docs/banknote-assets.md` for URLs and SHA-256 checksums. Remove the procedural banknote drawings; decode resources to RGBA8 once per renderer cache entry. No playback, input or gesture changes.
+
+Verification: 42 tests passed, GPU-exported front/back images and flying notes visually inspected. Signed release 0.9.1 installed and relaunched; all four JPEGs verified inside the installed resource bundle.

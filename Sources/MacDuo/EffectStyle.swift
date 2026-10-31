@@ -37,6 +37,7 @@ enum EffectStyle: Int, CaseIterable, Identifiable {
         case .dollars: return "dollarsign.circle.fill"
         }
     }
+    var paperAspect: Float { banknoteCurrency?.aspect ?? (140.0 / 196.0) }
     var isFlyingPaper: Bool { self == .cards || banknoteCurrency != nil }
     var banknoteCurrency: BanknoteCurrency? {
         switch self {

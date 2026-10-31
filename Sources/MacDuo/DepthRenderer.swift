@@ -525,7 +525,7 @@ final class DepthRenderer {
             ),
             shape: SIMD4(Float(hingeFloor), Float(maxDim), Float(pixelScale), maxLevel),
             light: SIMD4(Float(dimHingeFloor), Float(dimStrength), Float(dimReach), 0),
-            effect: SIMD4(Float(effectStyle.rawValue), Float(EffectStyle.progress(progress)), blackout ? 1 : 0, 0)
+            effect: SIMD4(Float(effectStyle.rawValue), Float(EffectStyle.progress(progress)), blackout ? 1 : 0, effectStyle.paperAspect)
         )
 
         let pass = MTLRenderPassDescriptor()

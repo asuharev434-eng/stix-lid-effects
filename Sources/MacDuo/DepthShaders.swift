@@ -16,7 +16,7 @@ enum DepthShaders {
         float4 paddedAndBlur;    // padded size, max radius in pixels, blur strength
         float4 shape;            // blur floor, max dim, pixel scale, max level
         float4 light;            // dim floor, dim strength, dim reach, unused
-        float4 effect;           // style, progress, manual blackout, unused
+        float4 effect;           // style, progress, manual blackout, paper aspect
     };
 
     struct GlassVertex {
@@ -125,7 +125,7 @@ enum DepthShaders {
         float3 local = float3((v.source - v.pivot) * float2(aspect, 1.0), 0.0);
         // Start as exact desktop tiles; grow into standard poker-card proportions.
         bool banknote = u.effect.x == 11.0 || u.effect.x == 12.0;
-        float paperAspect = banknote ? 1024.0 / 448.0 : 140.0 / 196.0;
+        float paperAspect = u.effect.w;
         local.x *= mix(1.0, ((1.0 / v.edge.w) * paperAspect) / (aspect / v.edge.z), lift);
         if (banknote) {
             // A gentle paper curl travels across the note as it takes flight.
@@ -168,7 +168,7 @@ enum DepthShaders {
                                  texture2d<float> backs [[texture(2)]]) {
         constexpr sampler linearSampler(filter::linear, mip_filter::linear, address::clamp_to_edge);
         bool banknote = u.effect.x == 11.0 || u.effect.x == 12.0;
-        float paperAspect = banknote ? 1024.0 / 448.0 : 140.0 / 196.0;
+        float paperAspect = u.effect.w;
         float2 local = (in.uv - 0.5) * float2(paperAspect, 1.0);
         float radius = (banknote ? 0.006 : 0.032) * in.lift;
         float2 q = abs(local) - (float2(paperAspect * 0.5, 0.5) - radius);
@@ -194,7 +194,7 @@ enum DepthShaders {
             float2 cell = float2(index % 13, index / 13);
             // Mirror the front UV because it is on the opposite side of the paper.
             float2 uv = float2(1.0 - in.uv.x, in.uv.y);
-            float2 inset = 0.5 / (banknote ? float2(1024.0, 448.0) : float2(140.0, 196.0));
+            float2 inset = 0.5 / (banknote ? float2(faces.get_width(), faces.get_height()) : float2(140.0, 196.0));
             uv = clamp(uv, inset, 1.0 - inset);
             colour = faces.sample(linearSampler, banknote ? uv : (cell + uv) / float2(13.0, 4.0)).rgb;
         }

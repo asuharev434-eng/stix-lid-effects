@@ -118,7 +118,7 @@ struct EffectPixelTests {
             var uniforms: [SIMD4<Float>] = [
                 SIMD4(1, 0, 0, 0), SIMD4(0, 1, 0, 0), SIMD4(0, 0, 1, 0),
                 SIMD4(Float(size), Float(size), 0, 0), SIMD4(Float(size), Float(size), 100, 0),
-                SIMD4(0, 0, 1, 6), SIMD4(0, 0, 1, 0), SIMD4(Float(style.rawValue), progress, blackout ? 1 : 0, 0)
+                SIMD4(0, 0, 1, 6), SIMD4(0, 0, 1, 0), SIMD4(Float(style.rawValue), progress, blackout ? 1 : 0, style.paperAspect)
             ]
             let pass = MTLRenderPassDescriptor()
             pass.colorAttachments[0].texture = output

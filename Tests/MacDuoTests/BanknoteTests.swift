@@ -9,7 +9,7 @@ struct BanknoteTests {
         for currency in BanknoteCurrency.allCases {
             for reverse in [false, true] {
                 let image = try #require(BanknoteArtwork.makeImage(currency: currency, reverse: reverse))
-                #expect(image.width == 1024 && image.height == 448)
+                #expect(image.width == currency.imageSize.width && image.height == currency.imageSize.height)
                 let data = try #require(image.dataProvider?.data) as Data
                 #expect(stride(from: 3, to: data.count, by: 4).allSatisfy { data[$0] == 255 })
                 #expect(!images.contains(data))
