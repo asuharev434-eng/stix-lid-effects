@@ -49,7 +49,7 @@ TIMESTAMP=--timestamp
 if [[ "$SIGN_IDENTITY" == - ]]; then
   TIMESTAMP=--timestamp=none
 fi
-codesign --force --options runtime "$TIMESTAMP" \
+codesign --force --options runtime "$TIMESTAMP" --entitlements Resources/Entitlements.plist \
   --sign "$SIGN_IDENTITY" "$BUNDLE"
 codesign --verify --strict --verbose=1 "$BUNDLE"
 

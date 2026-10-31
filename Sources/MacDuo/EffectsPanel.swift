@@ -8,6 +8,7 @@ struct EffectsPanel: View {
     @ObservedObject var manualEffect: ManualEffectController
     @ObservedObject var blur: ManualBlurController
     @ObservedObject var matte: MatteOverlayController
+    @ObservedObject var camera: CameraGestureController
     @ObservedObject var startup: LoginStartup
     let shortcutError: String?
     let canUseManualEffect: Bool
@@ -61,9 +62,9 @@ struct EffectsPanel: View {
                     Text("⌥M").font(.system(.body, design: .monospaced)).foregroundStyle(.secondary)
                 }.padding(.vertical, 5)
             }.buttonStyle(.bordered).disabled(!canUseManualEffect || blur.isActive || blur.isPreparing)
-            Text("⌥M — эффект и чёрный экран. Повторное ⌥M — обратная анимация. В этом режиме работает только ⌥M.")
+            Text("⌥M — эффект и чёрный экран. Повторное ⌥M — обратная анимация. Выход — ⌥M или щипок.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Text("⌥B — живое размытие окон и неподвижного указателя. Ввод заблокирован до повторного ⌥B.")
+            Text("⌥B — живое размытие окон и неподвижного указателя. Выход — ⌥B или раскрытая ладонь.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Divider()
             Button { matte.toggle() } label: {
@@ -85,6 +86,18 @@ struct EffectsPanel: View {
             }
             Text("Визуальная имитация nano-texture. Управление работает как обычно.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Divider()
+            Toggle("Жесты через камеру", isOn: Binding(get: { camera.isEnabled }, set: { camera.setEnabled($0) }))
+                .toggleStyle(.switch).controlSize(.small)
+            Text("Щипок — ⌥M · Раскрытая ладонь — ⌥B")
+                .font(.caption).foregroundStyle(.secondary)
+            Text(camera.status).font(.caption).foregroundStyle(camera.error == nil ? Color.secondary : Color.orange)
+                .fixedSize(horizontal: false, vertical: true)
+            if camera.isEnabled {
+                ProgressView(value: camera.progress).tint(.accentColor)
+                Text("Удерживайте жест 0,7 с, затем уберите руку. Видео не сохраняется.")
+                    .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             Toggle("Запускать при входе", isOn: Binding(get: { startup.enabled }, set: { startup.setEnabled($0) }))
                 .toggleStyle(.switch).controlSize(.small)
             if !permission {
@@ -123,11 +136,11 @@ struct EffectsPanel: View {
 final class EffectsWindowController {
     private let window: NSWindow
     private var advanced: NSWindow?
-    init(preferences: Preferences, controller: LidController, blur: ManualBlurController, manualEffect: ManualEffectController, matte: MatteOverlayController, startup: LoginStartup, shortcutError: String?, canUseManualEffect: Bool, onToggleEffect: @escaping () -> Void) {
+    init(preferences: Preferences, controller: LidController, blur: ManualBlurController, manualEffect: ManualEffectController, matte: MatteOverlayController, camera: CameraGestureController, startup: LoginStartup, shortcutError: String?, canUseManualEffect: Bool, onToggleEffect: @escaping () -> Void) {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 480), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "STIX Lid Effects"
         window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: EffectsPanel(preferences: preferences, controller: controller, manualEffect: manualEffect, blur: blur, matte: matte, startup: startup, shortcutError: shortcutError, canUseManualEffect: canUseManualEffect, onToggleEffect: onToggleEffect, onAdvanced: { [weak self] in
+        window.contentView = NSHostingView(rootView: EffectsPanel(preferences: preferences, controller: controller, manualEffect: manualEffect, blur: blur, matte: matte, camera: camera, startup: startup, shortcutError: shortcutError, canUseManualEffect: canUseManualEffect, onToggleEffect: onToggleEffect, onAdvanced: { [weak self] in
             self?.showAdvanced(preferences: preferences, controller: controller)
         }))
         window.center()

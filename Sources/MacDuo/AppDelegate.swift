@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let shortcut = GlobalShortcut()
     private let startup = LoginStartup()
     private let matte = MatteOverlayController()
+    private let camera = CameraGestureController()
     private var effectsWindow: EffectsWindowController?
     private var controller: LidController?
     private var statusItemController: StatusItemController?
@@ -21,16 +22,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItemController = StatusItemController(controller: controller, preferences: preferences)
         blur.onStateChange = { [weak self] _ in self?.updateManualSuppression() }
         manualEffect.onStateChange = { [weak self] in self?.updateManualSuppression() }
-        shortcut.action = { [weak self] in
-            guard let self, !self.manualEffect.isActive else { return }
-            self.blur.toggle()
+        shortcut.action = { [weak self] in self?.toggleBlur() }
+        camera.onGesture = { [weak self] gesture in
+            switch gesture {
+            case .pinch: self?.toggleManualEffect()
+            case .openPalm: self?.toggleBlur()
+            }
         }
         shortcut.effectAction = { [weak self] in self?.toggleManualEffect() }
         shortcut.register()
-        effectsWindow = EffectsWindowController(preferences: preferences, controller: controller, blur: blur, manualEffect: manualEffect, matte: matte, startup: startup, shortcutError: shortcut.error, canUseManualEffect: shortcut.effectAvailable, onToggleEffect: { [weak self] in self?.toggleManualEffect() })
+        effectsWindow = EffectsWindowController(preferences: preferences, controller: controller, blur: blur, manualEffect: manualEffect, matte: matte, camera: camera, startup: startup, shortcutError: shortcut.error, canUseManualEffect: shortcut.effectAvailable, onToggleEffect: { [weak self] in self?.toggleManualEffect() })
         statusItemController?.onShowPanel = { [weak self] in self?.effectsWindow?.show() }
         controller.start()
         matte.restore()
+        camera.restore()
         if !UserDefaults.standard.bool(forKey: "didConfigureStartup") {
             startup.setEnabled(true)
             UserDefaults.standard.set(true, forKey: "didConfigureStartup")
@@ -40,6 +45,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateManualSuppression() {
         controller?.manuallySuppressed = blur.isActive || blur.isPreparing || manualEffect.isActive
+    }
+    private func toggleBlur() {
+        guard !manualEffect.isActive else { return }
+        blur.toggle()
     }
     private func toggleManualEffect() {
         guard shortcut.effectAvailable, !blur.isActive, !blur.isPreparing else { return }
@@ -51,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         blur.dismiss()
         manualEffect.dismiss()
         matte.stop()
+        camera.shutdown()
         shortcut.stop()
         controller?.stop()
     }
