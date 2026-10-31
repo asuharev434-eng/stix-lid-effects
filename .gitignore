@@ -4,3 +4,11 @@ build/
 *.xcuserstate
 .swiftpm/
 .claude/work/
+
+# Local credentials and signing material never belong in source control.
+.env
+.env.*
+!.env.example
+*.p12
+*.p8
+*.key

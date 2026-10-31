@@ -49,6 +49,7 @@ final class DepthRenderer {
     private let glassPipeline: MTLRenderPipelineState
     private let cardPipeline: MTLRenderPipelineState
     private var cardTexture: MTLTexture?
+    private var cardBackTexture: MTLTexture?
     private var meshStyle: EffectStyle?
     private let meshDepthState: MTLDepthStencilState
     private var meshBuffer: MTLBuffer?
@@ -441,18 +442,25 @@ final class DepthRenderer {
             descriptor.usage = [.renderTarget]
             meshDepthTexture = device.makeTexture(descriptor: descriptor)
         }
-        if style == .cards, cardTexture == nil {
-            guard let image = CardArtwork.makeAtlas(), let data = image.dataProvider?.data,
-                  let bytes = CFDataGetBytePtr(data) else { return false }
-            let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm_srgb, width: image.width, height: image.height, mipmapped: false)
-            descriptor.storageMode = .shared
-            descriptor.usage = .shaderRead
-            guard let atlas = device.makeTexture(descriptor: descriptor) else { return false }
-            atlas.replace(region: MTLRegionMake2D(0, 0, image.width, image.height), mipmapLevel: 0,
-                          withBytes: bytes, bytesPerRow: image.bytesPerRow)
-            cardTexture = atlas
+        if style == .cards {
+            if cardTexture == nil { cardTexture = makeArtworkTexture(CardArtwork.makeAtlas()) }
+            if cardBackTexture == nil { cardBackTexture = makeArtworkTexture(CardBackArtwork.makeImage()) }
+            guard cardTexture != nil, cardBackTexture != nil else { return false }
         }
         return meshBuffer != nil && meshDepthTexture != nil && meshVertexCount > 0
+    }
+
+    private func makeArtworkTexture(_ image: CGImage?) -> MTLTexture? {
+        guard let image, let data = image.dataProvider?.data,
+              let bytes = CFDataGetBytePtr(data) else { return nil }
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm_srgb,
+            width: image.width, height: image.height, mipmapped: false)
+        descriptor.storageMode = .shared
+        descriptor.usage = .shaderRead
+        guard let texture = device.makeTexture(descriptor: descriptor) else { return nil }
+        texture.replace(region: MTLRegionMake2D(0, 0, image.width, image.height), mipmapLevel: 0,
+                        withBytes: bytes, bytesPerRow: image.bytesPerRow)
+        return texture
     }
 
     /// - Parameter corners: the picture corners projected onto the screen, in
@@ -536,7 +544,10 @@ final class DepthRenderer {
         }
         encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
         encoder.setFragmentTexture(texture, index: 0)
-        if effectStyle == .cards { encoder.setFragmentTexture(cardTexture, index: 1) }
+        if effectStyle == .cards {
+            encoder.setFragmentTexture(cardTexture, index: 1)
+            encoder.setFragmentTexture(cardBackTexture, index: 2)
+        }
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: isMesh ? meshVertexCount : 3)
         encoder.endEncoding()
         commands.present(drawable)

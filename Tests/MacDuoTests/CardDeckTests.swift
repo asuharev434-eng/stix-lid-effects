@@ -32,4 +32,21 @@ struct CardDeckTests {
         #expect(atlas.height == CardArtwork.cardHeight * 4)
         #expect(MemoryLayout<GlassVertex>.stride == 64)
     }
+    @Test func brandedBackUsesOpaqueSTIXNavyAndWhiteMasterMark() throws {
+        let image = try #require(CardBackArtwork.makeImage())
+        #expect(image.width == 560 && image.height == 784)
+        let data = try #require(image.dataProvider?.data)
+        let bytes = try #require(CFDataGetBytePtr(data))
+        for y in 0..<image.height {
+            for x in 0..<image.width {
+                #expect(bytes[y * image.bytesPerRow + x * 4 + 3] == 255)
+            }
+        }
+        let navy = 50 * image.bytesPerRow + 280 * 4
+        #expect(Array(UnsafeBufferPointer(start: bytes + navy, count: 4)) == [0, 17, 103, 255])
+        // The I in the original central white wordmark must remain visible.
+        let mark = 390 * image.bytesPerRow + 337 * 4
+        #expect(Array(UnsafeBufferPointer(start: bytes + mark, count: 4)) == [255, 255, 255, 255])
+    }
+
 }

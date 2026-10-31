@@ -48,6 +48,13 @@ struct EffectPixelTests {
         let atlasTexture = try #require(device.makeTexture(descriptor: atlasDescriptor))
         let atlasData = try #require(atlas.dataProvider?.data)
         atlasTexture.replace(region: MTLRegionMake2D(0, 0, atlas.width, atlas.height), mipmapLevel: 0, withBytes: CFDataGetBytePtr(atlasData)!, bytesPerRow: atlas.bytesPerRow)
+        let back = try #require(CardBackArtwork.makeImage())
+        let backDescriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm_srgb, width: back.width, height: back.height, mipmapped: false)
+        backDescriptor.storageMode = .shared
+        backDescriptor.usage = .shaderRead
+        let backTexture = try #require(device.makeTexture(descriptor: backDescriptor))
+        let backData = try #require(back.dataProvider?.data)
+        backTexture.replace(region: MTLRegionMake2D(0, 0, back.width, back.height), mipmapLevel: 0, withBytes: CFDataGetBytePtr(backData)!, bytesPerRow: back.bytesPerRow)
         let depthDescriptor = MTLDepthStencilDescriptor()
         depthDescriptor.depthCompareFunction = .lessEqual
         depthDescriptor.isDepthWriteEnabled = true
@@ -120,7 +127,10 @@ struct EffectPixelTests {
             }
             uniforms.withUnsafeMutableBytes { encoder.setFragmentBytes($0.baseAddress!, length: $0.count, index: 0) }
             encoder.setFragmentTexture(changedDesktop ? alternateSource : source, index: 0)
-            if style == .cards { encoder.setFragmentTexture(atlasTexture, index: 1) }
+            if style == .cards {
+                encoder.setFragmentTexture(atlasTexture, index: 1)
+                encoder.setFragmentTexture(backTexture, index: 2)
+            }
             encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: style == .cards ? (rearOnly ? rearVertices.count : cardVertices.count) : style == .shatter ? vertices.count : 3)
             encoder.endEncoding()
             command.commit()
@@ -144,6 +154,10 @@ struct EffectPixelTests {
                     #expect(CGImageDestinationFinalize(destination))
                 }
             }
+            let backURL = URL(fileURLWithPath: exportDirectory).appendingPathComponent("stix-card-back.png")
+            let backDestination = try #require(CGImageDestinationCreateWithURL(backURL as CFURL, "public.png" as CFString, 1, nil))
+            CGImageDestinationAddImage(backDestination, back, nil)
+            #expect(CGImageDestinationFinalize(backDestination))
             let atlasURL = URL(fileURLWithPath: exportDirectory).appendingPathComponent("card-faces.png")
             let atlasDestination = try #require(CGImageDestinationCreateWithURL(atlasURL as CFURL, "public.png" as CFString, 1, nil))
             CGImageDestinationAddImage(atlasDestination, atlas, nil)

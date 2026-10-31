@@ -2,7 +2,7 @@ import CoreGraphics
 import CoreText
 import Foundation
 
-/// Original vector-drawn faces. The reverse sides come from the desktop, not this atlas.
+/// Original vector-drawn faces. Reverse sides use desktop fragments or separate STIX artwork.
 enum CardArtwork {
     static let cardWidth = 140
     static let cardHeight = 196

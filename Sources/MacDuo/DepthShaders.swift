@@ -158,7 +158,8 @@ enum DepthShaders {
     fragment float4 cardFragment(CardVarying in [[stage_in]],
                                  constant Uniforms &u [[buffer(0)]],
                                  texture2d<float> picture [[texture(0)]],
-                                 texture2d<float> faces [[texture(1)]]) {
+                                 texture2d<float> faces [[texture(1)]],
+                                 texture2d<float> backs [[texture(2)]]) {
         constexpr sampler linearSampler(filter::linear, mip_filter::linear, address::clamp_to_edge);
         float2 local = (in.uv - 0.5) * float2(140.0 / 196.0, 1.0);
         float radius = 0.032 * in.lift;
@@ -169,13 +170,7 @@ enum DepthShaders {
         float3 colour;
         if (normal.z >= 0.0) {
             if (in.extra > 0.5) {
-                // Ordinary rear-deck cards have their own navy/gold printed backs.
-                float2 weave = in.uv * float2(18.0, 26.0);
-                float lattice = 1.0 - smoothstep(0.045, 0.14, abs(sin((weave.x + weave.y) * 3.14159265)));
-                lattice += 1.0 - smoothstep(0.045, 0.14, abs(sin((weave.x - weave.y) * 3.14159265)));
-                colour = mix(float3(0.012, 0.025, 0.075), float3(0.25, 0.17, 0.07), min(lattice, 1.0) * 0.65);
-                float emblem = abs(length((in.uv - 0.5) * float2(0.7142857, 1.0)) - 0.18);
-                colour = mix(colour, float3(0.65, 0.46, 0.16), 1.0 - smoothstep(0.004, 0.009, emblem));
+                colour = backs.sample(linearSampler, in.uv).rgb;
             } else {
                 // Only the original screen-plane deck samples desktop fragments.
                 float2 point = float2(in.source.x * u.screenAndOrigin.x, (1.0 - in.source.y) * u.screenAndOrigin.y);
