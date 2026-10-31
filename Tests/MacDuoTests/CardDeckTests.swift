@@ -3,10 +3,13 @@ import Testing
 @testable import MacDuo
 
 struct CardDeckTests {
-    @Test func deckHas52CardsAndCoversTheDesktopExactly() {
+    @Test func denseDeckHas208CardsAndCoversTheDesktopExactly() {
         let vertices = CardDeckMesh.vertices(aspect: 1.6)
-        #expect(vertices.count == 52 * 6)
-        #expect(Set(vertices.map { Int($0.axis.w) }) == Set(0..<52))
+        #expect(vertices.count == 208 * 6)
+        #expect(Set(vertices.map { Int($0.axis.w) }) == Set(0..<208))
+        let starts = vertices.map { $0.motion.x }
+        #expect((starts.max() ?? 0) - (starts.min() ?? 0) > 0.5)
+        #expect(Set(vertices.map { Int($0.axis.w) % 52 }) == Set(0..<52))
         #expect(vertices.allSatisfy { (0...1).contains($0.source.x) && (0...1).contains($0.source.y) })
         var area: Float = 0
         for i in stride(from: 0, to: vertices.count, by: 3) {

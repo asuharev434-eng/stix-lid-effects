@@ -118,11 +118,11 @@ enum DepthShaders {
         GlassVertex v = vertices[id];
         float aspect = u.screenAndOrigin.x / u.screenAndOrigin.y;
         float p = clamp(u.effect.y, 0.0, 1.0);
-        float t = max(p - v.motion.x, 0.0) * 2.3;
+        float t = max(p - v.motion.x, 0.0) * 4.6;
         float lift = smoothstep(0.0, 0.38, t);
         float3 local = float3((v.source - v.pivot) * float2(aspect, 1.0), 0.0);
         // Start as exact desktop tiles; grow into standard poker-card proportions.
-        local.x *= mix(1.0, (0.25 * 140.0 / 196.0) / (aspect / 13.0), lift);
+        local.x *= mix(1.0, ((1.0 / v.edge.w) * 140.0 / 196.0) / (aspect / v.edge.z), lift);
         float sign = fmod(v.axis.w, 2.0) < 1.0 ? 1.0 : -1.0;
         float turnY = sign * t * (3.3 + v.motion.y * 2.4);
         float turnX = t * v.axis.x * 2.0;
@@ -173,7 +173,7 @@ enum DepthShaders {
             float border = (1.0 - smoothstep(0.006, 0.012, edge)) * in.lift;
             colour = mix(colour, float3(0.96, 0.94, 0.89), border);
         } else {
-            int index = clamp(int(in.cardID + 0.5), 0, 51);
+            int index = max(int(in.cardID + 0.5), 0) % 52;
             float2 cell = float2(index % 13, index / 13);
             // Mirror the front UV because it is on the opposite side of the paper.
             float2 uv = float2(1.0 - in.uv.x, in.uv.y);

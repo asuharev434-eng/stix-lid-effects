@@ -151,6 +151,11 @@ struct EffectPixelTests {
         }.count
         #expect(visibleCards > size * size / 10, "Cards must remain visibly in flight during the middle of the effect")
         #expect(visibleCards < size * size * 95 / 100, "Cards must separate, exposing space behind them")
+        let lateCards = try render(.cards, 0.88)
+        let lateVisible = stride(from: 0, to: lateCards.count, by: 4).filter {
+            lateCards[$0] > 8 || lateCards[$0 + 1] > 8 || lateCards[$0 + 2] > 8
+        }.count
+        #expect(lateVisible > size * size / 100, "Staggered cards must keep flying near the end of the unchanged duration")
         let reference = try render(.original, 0)
         let cracking = try render(.shatter, 0.15)
         #expect(cracking != reference)
