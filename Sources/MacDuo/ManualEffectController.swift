@@ -50,7 +50,7 @@ final class ManualEffectController: ObservableObject {
         error = nil
         token += 1
         let run = token
-        duration = preferences.effectStyle == .shatter ? 2.2 : 1.6
+        duration = preferences.effectStyle == .shatter ? 3.0 : 1.6
         tuning = DepthTuning(effectStyle: preferences.effectStyle, isManualBlackout: true,
                             viewingDistance: preferences.viewingDistance, recession: preferences.recession,
                             blurEvenness: preferences.blurEvenness, dimReach: preferences.dimReach,

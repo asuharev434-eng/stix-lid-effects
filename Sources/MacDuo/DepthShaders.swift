@@ -1,12 +1,7 @@
 import Foundation
 
-/// The whole effect in one fragment shader.
-///
-/// Each screen pixel maps back into the picture through the inverse
-/// perspective, then takes one sample from a Gaussian pyramid at a level
-/// chosen by the blur wanted there. The texture already holds the picture on
-/// black, so the two blur together and the picture edge needs no special
-/// handling.
+/// Shared Metal shaders: full-screen effects and a depth-tested glass mesh.
+/// Source images sit on a black margin with a Gaussian pyramid for blur.
 enum DepthShaders {
     static let source = """
     #include <metal_stdlib>
@@ -21,24 +16,92 @@ enum DepthShaders {
         float4 paddedAndBlur;    // padded size, max radius in pixels, blur strength
         float4 shape;            // blur floor, max dim, pixel scale, max level
         float4 light;            // dim floor, dim strength, dim reach, unused
-        float4 effect;           // style, progress, reserved, reserved
+        float4 effect;           // style, progress, manual blackout, unused
     };
 
-    float fractureHash(float2 p) {
-        return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453);
+    struct GlassVertex {
+        float2 source;
+        float2 pivot;
+        float4 motion;
+        float4 axis;
+        float4 edge;
+    };
+    struct GlassVarying {
+        float4 position [[position]];
+        float2 source;
+        float edge;
+        float3 normal;
+        float seed;
+        float time;
+    };
+    float3 glassRotate(float3 v, float3 axis, float angle) {
+        float s = sin(angle), c = cos(angle);
+        return v * c + cross(axis, v) * s + axis * dot(axis, v) * (1.0 - c);
     }
-    float2 fractureVertex(float2 index, float2 grid) {
-        float2 jitter = float2(fractureHash(index), fractureHash(index + 31.7)) - 0.5;
-        if (index.x == 0.0 || index.x == grid.x) jitter.x = 0.0;
-        if (index.y == 0.0 || index.y == grid.y) jitter.y = 0.0;
-        return (index + jitter * 0.5) / grid;
+    vertex GlassVarying glassVertex(uint id [[vertex_id]],
+                                    constant GlassVertex *vertices [[buffer(0)]],
+                                    constant Uniforms &u [[buffer(1)]]) {
+        GlassVertex v = vertices[id];
+        float aspect = u.screenAndOrigin.x / u.screenAndOrigin.y;
+        float p = clamp(u.effect.y, 0.0, 1.0);
+        float t = max(p - v.motion.x, 0.0) * 3.2;
+        float3 local = float3((v.source - v.pivot) * float2(aspect, 1.0), 0.0);
+        float3 rotated = glassRotate(local, v.axis.xyz, v.motion.w * t);
+        float3 world = float3(v.pivot * float2(aspect, 1.0), 0.0) + rotated;
+        // Ballistic motion, with separate release, lateral impulse and angular momentum per shard.
+        world += float3(v.motion.y * t, v.motion.z * t + 1.18 * t * t,
+                        (0.08 + v.axis.w * 0.18) * t + 0.04 * t * t);
+        float perspective = 2.8 / max(2.8 + world.z, 0.5);
+        float2 ndc = float2(world.x / aspect * 2.0 - 1.0, 1.0 - world.y * 2.0) * perspective;
+        GlassVarying out;
+        out.position = float4(ndc, clamp(0.4 + world.z * 0.18, 0.01, 0.98), 1.0);
+        out.source = v.source;
+        out.edge = v.edge.x;
+        out.normal = glassRotate(float3(0, 0, 1), v.axis.xyz, v.motion.w * t);
+        out.seed = v.axis.w;
+        out.time = t;
+        return out;
     }
-    float3 fractureBarycentric(float2 p, float2 a, float2 b, float2 c) {
-        float2 v0 = b - a, v1 = c - a, v2 = p - a;
-        float det = v0.x * v1.y - v1.x * v0.y;
-        float u = (v2.x * v1.y - v1.x * v2.y) / det;
-        float v = (v0.x * v2.y - v2.x * v0.y) / det;
-        return float3(1.0 - u - v, u, v);
+    fragment float4 glassFragment(GlassVarying in [[stage_in]],
+                                  constant Uniforms &u [[buffer(0)]],
+                                  texture2d<float> picture [[texture(0)]]) {
+        constexpr sampler linearSampler(filter::linear, mip_filter::linear, address::clamp_to_edge);
+        float p = clamp(u.effect.y, 0.0, 1.0);
+        float2 size = u.screenAndOrigin.xy;
+        float aspect = size.x / size.y;
+        float2 world = in.source * float2(aspect, 1.0);
+        float2 hit = float2(aspect * 0.54, 0.38);
+        float distanceFromHit = distance(world, hit);
+        float arrival = smoothstep(distanceFromHit - 0.035, distanceFromHit + 0.035, p * 7.0);
+        arrival *= smoothstep(0.001, 0.025, p);
+        float pixel = 1.0 / size.y;
+        float width = pixel * (0.55 + in.seed * 0.65);
+        float split = (1.0 - smoothstep(width * 0.4, width * 1.7, in.edge)) * arrival;
+        // Refraction is tiny and only appears as a shard tilts, preserving the desktop at p=0.
+        float2 offset = in.normal.xy * min(in.time, 1.0) * 0.002;
+        float2 point = float2((in.source.x + offset.x) * size.x, (1.0 - in.source.y - offset.y) * size.y);
+        float2 tex = (point - u.screenAndOrigin.zw) / u.paddedAndBlur.xy;
+        tex.y = 1.0 - tex.y;
+        float3 colour = picture.sample(linearSampler, tex, level(0.0)).rgb;
+        float front = smoothstep(-0.12, 0.18, in.normal.z);
+        float diffuse = 0.35 + 0.65 * abs(in.normal.z);
+        float facing = mix(1.0, mix(0.12, diffuse, front), min(in.time * 3.0, 1.0));
+        colour *= facing;
+        colour = mix(colour, float3(0.005, 0.008, 0.012), split * 0.88);
+        float bevel = exp(-pow((in.edge - width * 2.0) / max(width * 0.65, 0.00001), 2.0)) * arrival;
+        float specular = pow(max(dot(normalize(in.normal), normalize(float3(-0.35, -0.55, 1))), 0.0), 36.0);
+        colour += bevel * float3(0.23, 0.29, 0.33) * (0.35 + specular);
+        colour += float3(0.12, 0.16, 0.19) * specular * min(in.time, 1.0) * 0.25;
+        // Tiny branching fissures close to the impact, independent of polygon triangulation.
+        float2 relative = world - hit;
+        float angle = atan2(relative.y, relative.x);
+        float branch = abs(sin(angle * 13.0 + sin(distanceFromHit * 92.0) * 0.22));
+        float branchDistance = branch * distanceFromHit / 13.0;
+        float micro = (1.0 - smoothstep(pixel * 0.2, pixel * 0.65, branchDistance))
+                    * (1.0 - smoothstep(0.045, 0.18, distanceFromHit)) * arrival;
+        colour *= 1.0 - micro * 0.6;
+        colour *= 1.0 - smoothstep(0.97, 1.0, p);
+        return float4(colour, 1.0);
     }
 
     vertex float4 depthVertex(uint vertexID [[vertex_id]]) {
@@ -67,59 +130,6 @@ enum DepthShaders {
         int style = int(uniforms.effect.x);
         float p = clamp(uniforms.effect.y, 0.0, 1.0);
         float blackoutFade = uniforms.effect.z > 0.5 ? 1.0 - smoothstep(0.82, 1.0, p) : 1.0;
-        if (style == 8 && p > 0.0001) {
-            float2 uv = position.xy / (screenSize * pixelScale);
-            float2 grid = float2(10.0, 7.0);
-            float drop = smoothstep(0.26, 1.0, p);
-            float gravity = drop * drop * 1.65;
-            int2 guess = int2(floor((uv - float2(0.0, gravity)) * grid));
-            float2 found = float2(-1.0);
-            float crack = 0.0;
-            float shardLight = 1.0;
-            // Jittered shared vertices form contiguous, irregular triangular glass shards.
-            for (int y = -1; y <= 1; ++y) {
-                for (int x = -1; x <= 1; ++x) {
-                    int2 cell = guess + int2(x, y);
-                    if (any(cell < int2(0)) || any(cell >= int2(grid))) continue;
-                    float2 ij = float2(cell);
-                    float2 a = fractureVertex(ij, grid);
-                    float2 b = fractureVertex(ij + float2(1, 0), grid);
-                    float2 c = fractureVertex(ij + float2(1, 1), grid);
-                    float2 d = fractureVertex(ij + float2(0, 1), grid);
-                    for (int triangle = 0; triangle < 2; ++triangle) {
-                        float2 v0 = a;
-                        float2 v1 = triangle == 0 ? b : c;
-                        float2 v2 = triangle == 0 ? c : d;
-                        float seed = fractureHash(ij + float2(triangle * 17.0, 9.0));
-                        float2 pivot = (v0 + v1 + v2) / 3.0;
-                        float angle = (seed - 0.5) * drop * 2.4;
-                        float cs = cos(angle), sn = sin(angle);
-                        float2 displacement = float2((seed - 0.5) * 0.065 * drop, gravity);
-                        float2 local = uv - pivot - displacement;
-                        float2 source = pivot + float2(cs * local.x + sn * local.y, -sn * local.x + cs * local.y);
-                        float3 bary = fractureBarycentric(source, v0, v1, v2);
-                        if (all(bary >= float3(-0.00001))) {
-                            found = source;
-                            float edge = min(bary.x, min(bary.y, bary.z));
-                            float propagation = smoothstep(0.0, 0.24, p) * 1.5;
-                            float reached = 1.0 - smoothstep(propagation - 0.05, propagation, distance(source, float2(0.52, 0.38)));
-                            crack = (1.0 - smoothstep(0.004, 0.022, edge)) * reached;
-                            shardLight = 1.0 - drop * (0.15 + seed * 0.35);
-                        }
-                    }
-                }
-            }
-            if (found.x < 0.0) return float4(0, 0, 0, 1);
-            float2 point = float2(found.x * screenSize.x, (1.0 - found.y) * screenSize.y);
-            float2 tex = (point - paddedOrigin) / paddedSize;
-            tex.y = 1.0 - tex.y;
-            float3 rgb = picture.sample(linearSampler, tex, level(0.0)).rgb * shardLight;
-            // Dark split with a narrow cool glint, rather than a white screen wash.
-            rgb = mix(rgb, float3(0.015, 0.02, 0.03), crack * 0.8);
-            rgb += crack * float3(0.12, 0.17, 0.22) * (1.0 - drop * 0.5);
-            rgb *= (1.0 - smoothstep(0.93, 1.0, p)) * blackoutFade;
-            return float4(rgb, 1.0);
-        }
         if (style != 0) {
             float2 uv = position.xy / (screenSize * pixelScale);
             float2 q = uv;

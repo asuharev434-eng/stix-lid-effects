@@ -6,7 +6,7 @@ Native MacBook lid effects, based on [Mac Duo by Makito](https://github.com/sumi
 - Eight selectable effects: CRT, frosted glass, waves, paper fold, particles, edge light, cinematic fade, and cracking glass with falling shards; original Duo remains available.
 - **Option+B** toggles live Gaussian blur of real windows on every connected display (15 fps, neutral colour, 14 pt radius). **Escape does not dismiss it.** Images stay in memory; they are never saved or uploaded. This is a visual effect, not a screen lock.
 - **Option+M** plays the selected effect across every display and holds a fully black screen until Option+M is pressed again. Repeat the shortcut during preparation or animation to cancel immediately. While black, Option+B does not reveal the screen. Black windows consume mouse clicks and require no ongoing capture or GPU animation.
-- The cracking-glass effect reveals cracks spreading from an impact point, then rotates irregular triangular shards as they fall away.
+- The cracking-glass effect reveals cracks spreading from an impact point, then drops independent Voronoi glass plates: fine chips around the impact, larger plates at the edges, staggered release, ballistic motion, 3D rotation, dark backs and refractive edge highlights. Depth testing handles overlapping fragments. The manual glass sequence lasts three seconds.
 - Login startup via SMAppService, with an on/off switch.
 - Only the overlay windows are excluded from capture; the control panel and other app windows remain visible under the blur.
 - Sleep and display changes dismiss manual blur to prevent stale overlays. Option+M blackout remains latched and covers the updated display layout until toggled off.
