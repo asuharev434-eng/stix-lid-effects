@@ -4,8 +4,8 @@ Native MacBook lid effects, based on [Mac Duo by Makito](https://github.com/sumi
 
 - Mini control window from the menu bar.
 - Eight selectable effects: CRT, frosted glass, waves, paper fold, particles, edge light, cinematic fade, and cracking glass with falling shards; original Duo remains available.
-- **Option+B** toggles live Gaussian blur of real windows on every connected display (15 fps, neutral colour, 14 pt radius). **Escape does not dismiss it.** Images stay in memory; they are never saved or uploaded. This is a visual effect, not a screen lock.
-- **Option+M** plays the selected effect across every display and holds a fully black screen until Option+M is pressed again. Repeat the shortcut during preparation or animation to cancel immediately. While black, Option+B does not reveal the screen. Black windows consume mouse clicks and require no ongoing capture or GPU animation.
+- **Option+B** toggles live Gaussian blur of real windows on every connected display (15 fps, neutral colour, 14 pt radius). **Escape does not dismiss it.** While active, input is suppressed except Option+B. A frozen cursor image is composited into the source before blur; the real pointer is hidden. Images stay in memory; they are never saved or uploaded. This is a visual effect, not a screen lock.
+- **Option+M** plays the selected effect across every display and holds a fully black screen until Option+M is pressed again. Repeat the shortcut during animation to reverse smoothly from the current frame. Repeat it from held black to play the same effect in reverse over freshly captured windows. While black, Option+B does not reveal the screen. Black windows require no ongoing capture or GPU animation. During the manual effect and restoration, only Option+M passes through the input shield and the cursor is hidden.
 - The cracking-glass effect reveals cracks spreading from an impact point, then drops independent Voronoi glass plates: fine chips around the impact, larger plates at the edges, staggered release, ballistic motion, 3D rotation, dark backs and refractive edge highlights. Depth testing handles overlapping fragments. The manual glass sequence lasts three seconds.
 - Login startup via SMAppService, with an on/off switch.
 - Only the overlay windows are excluded from capture; the control panel and other app windows remain visible under the blur.
@@ -14,13 +14,13 @@ Native MacBook lid effects, based on [Mac Duo by Makito](https://github.com/sumi
 
 ## Build and install
 
-Run `swift test`, then `./build.sh`. Copy `build/STIX Lid Effects.app` into Applications and launch. For a stable signed local build, set `SIGN_IDENTITY` to your Developer ID identity before running the build script. Grant Screen Recording permission to **STIX Lid Effects**, then restart it if macOS requests this. Local builds are not notarized automatically.
+Run `swift test`, then `./build.sh`. Copy `build/STIX Lid Effects.app` into Applications and launch. For a stable signed local build, set `SIGN_IDENTITY` to your Developer ID identity before running the build script. Grant Screen Recording permission to **STIX Lid Effects**, then restart it if macOS requests this. Also enable the app in Privacy & Security → Accessibility to use the manual input shield. Local builds are not notarized automatically.
 
-The app registers Option+B and Option+M using Carbon, with key-release tracking to prevent repeated toggles while a key is held. No Accessibility permission or key logging is needed. If another app has reserved this shortcut, the mini window reports the conflict. Close the mini window to leave the menu bar utility running; use its Quit button to exit.
+The app registers Option+B and Option+M using Carbon, with key-release tracking to prevent repeated toggles while a key is held. Accessibility permission is required for the temporary input shield. The event tap does not record input and is removed when the mode ends; cursor visibility is restored. Tap failure cancels the mode and restores control. If another app has reserved this shortcut, the mini window reports the conflict. Close the mini window to leave the menu bar utility running; use its Quit button to exit.
 
 ## Verification
 
-`swift test` covers the existing lid policies and localization, progress validation, shader compilation and GPU-rendered frames for all effects. Pixel tests verify a clear desktop at zero progress, distinct intermediate effects, visible cracking/falling stages and completely black final frames for every manual effect. State tests verify cancellation during preparation/animation and indefinite black-screen hold until the next toggle.
+`swift test` covers the existing lid policies and localization, progress validation, shader compilation and GPU-rendered frames for all effects. Pixel tests verify a clear desktop at zero progress, distinct intermediate effects, visible cracking/falling stages and completely black final frames for every manual effect. State tests verify preparation cancellation, indefinite black-screen hold, reverse playback and continuous direction changes. Input-policy tests verify the mode-specific exit shortcut, blocked keys, pointer/scroll/gesture events, and the blurred-cursor compositing test verifies that the pointer is part of the source image.
 
 ## Upstream documentation
 

@@ -8,7 +8,7 @@ final class WindowBlurStream {
     private let stream: SCStream
     private let receiver: Receiver
 
-    init(display: SCDisplay, excluding windows: [SCWindow], size: CGSize,
+    init(display: SCDisplay, excluding windows: [SCWindow], size: CGSize, cursor: BlurCursorStamp? = nil,
          onFrame: @escaping @MainActor (CGImage) -> Void,
          onError: @escaping @MainActor (String) -> Void) throws {
         let filter = SCContentFilter(display: display, excludingWindows: windows)
@@ -20,7 +20,7 @@ final class WindowBlurStream {
         configuration.showsCursor = false
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 15)
         configuration.queueDepth = 3
-        receiver = Receiver(onFrame: onFrame, onError: onError)
+        receiver = Receiver(cursor: cursor, onFrame: onFrame, onError: onError)
         stream = SCStream(filter: filter, configuration: configuration, delegate: receiver)
         try stream.addStreamOutput(receiver, type: .screen,
                                    sampleHandlerQueue: DispatchQueue(label: "STIX.windowBlur.frames", qos: .userInitiated))
@@ -35,6 +35,7 @@ final class WindowBlurStream {
     // Frame rendering is confined to the serial capture queue; shared delivery state is locked.
     private final class Receiver: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
         private let renderer = WindowBlurRenderer()
+        private let cursor: BlurCursorStamp?
         private let onFrame: @MainActor (CGImage) -> Void
         private let onError: @MainActor (String) -> Void
         private let lock = NSLock()
@@ -42,8 +43,9 @@ final class WindowBlurStream {
         private var scheduled = false
         private var cancelled = false
 
-        init(onFrame: @escaping @MainActor (CGImage) -> Void,
+        init(cursor: BlurCursorStamp?, onFrame: @escaping @MainActor (CGImage) -> Void,
              onError: @escaping @MainActor (String) -> Void) {
+            self.cursor = cursor
             self.onFrame = onFrame
             self.onError = onError
         }
@@ -63,7 +65,7 @@ final class WindowBlurStream {
             lock.unlock()
             guard !stopped else { return }
             autoreleasepool {
-                guard let image = renderer.render(CIImage(cvPixelBuffer: buffer)) else { return }
+                guard let image = renderer.render(CIImage(cvPixelBuffer: buffer), cursor: cursor) else { return }
                 lock.lock()
                 guard !cancelled else { lock.unlock(); return }
                 pending = image

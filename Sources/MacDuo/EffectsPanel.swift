@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import SwiftUI
 
 struct EffectsPanel: View {
@@ -12,6 +13,7 @@ struct EffectsPanel: View {
     let onToggleEffect: () -> Void
     let onAdvanced: () -> Void
     @State private var permission = CGPreflightScreenCaptureAccess()
+    @State private var inputPermission = AXIsProcessTrusted()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -58,9 +60,9 @@ struct EffectsPanel: View {
                     Text("⌥M").font(.system(.body, design: .monospaced)).foregroundStyle(.secondary)
                 }.padding(.vertical, 5)
             }.buttonStyle(.bordered).disabled(!canUseManualEffect)
-            Text("⌥M проигрывает выбранный эффект и оставляет экран чёрным до повторного ⌥M.")
+            Text("⌥M — эффект и чёрный экран. Повторное ⌥M — обратная анимация. В этом режиме работает только ⌥M.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Text("Живое размытие окон. Повторное ⌥B возвращает резкость. Это не блокировка Mac.")
+            Text("⌥B — живое размытие окон и неподвижного указателя. Ввод заблокирован до повторного ⌥B.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Toggle("Запускать при входе", isOn: Binding(get: { startup.enabled }, set: { startup.setEnabled($0) }))
                 .toggleStyle(.switch).controlSize(.small)
@@ -68,6 +70,13 @@ struct EffectsPanel: View {
                 Button("Разрешить запись экрана…") {
                     CGRequestScreenCaptureAccess()
                     if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") { NSWorkspace.shared.open(url) }
+                }
+            }
+            if !inputPermission {
+                Button("Разрешить блокировку ввода…") {
+                    let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+                    _ = AXIsProcessTrustedWithOptions(options)
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") { NSWorkspace.shared.open(url) }
                 }
             }
             if let message = manualEffect.error ?? blur.error ?? shortcutError ?? startup.message {
@@ -86,7 +95,7 @@ struct EffectsPanel: View {
         .onAppear { refresh() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in refresh() }
     }
-    private func refresh() { permission = CGPreflightScreenCaptureAccess(); startup.refresh() }
+    private func refresh() { permission = CGPreflightScreenCaptureAccess(); startup.refresh(); inputPermission = AXIsProcessTrusted() }
 }
 
 @MainActor

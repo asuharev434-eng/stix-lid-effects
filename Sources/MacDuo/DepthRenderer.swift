@@ -450,7 +450,8 @@ final class DepthRenderer {
         maxDim: Double,
         effectStyle: EffectStyle = .original,
         progress: Double = 0,
-        blackout: Bool = false
+        blackout: Bool = false,
+        onRendered: (@MainActor @Sendable () -> Void)? = nil
     ) {
         guard let commands = queue.makeCommandBuffer() else { return }
         absorbPending(into: commands)
@@ -520,6 +521,12 @@ final class DepthRenderer {
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: isGlass ? glassVertexCount : 3)
         encoder.endEncoding()
         commands.present(drawable)
+        if let onRendered {
+            commands.addCompletedHandler { completed in
+                guard completed.status == .completed else { return }
+                Task { @MainActor in onRendered() }
+            }
+        }
         commands.commit()
     }
 }

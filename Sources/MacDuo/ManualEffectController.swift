@@ -3,7 +3,7 @@ import Combine
 import QuartzCore
 import ScreenCaptureKit
 
-/// Plays the selected GPU effect, then replaces it with idle black windows.
+/// Captures on demand, animates reversibly, and holds black without GPU work.
 @MainActor
 final class ManualEffectController: ObservableObject {
     @Published private(set) var playback = ManualEffectPlayback()
@@ -24,8 +24,13 @@ final class ManualEffectController: ObservableObject {
     private var duration: TimeInterval = 1.6
     private var observers: [NSObjectProtocol] = []
     private var sleepObserver: NSObjectProtocol?
+    private let inputGuard = BlackoutInputGuard()
 
     init() {
+        inputGuard.onFailure = { [weak self] message in
+            self?.dismiss()
+            self?.error = message
+        }
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.isActive else { return }
@@ -41,21 +46,42 @@ final class ManualEffectController: ObservableObject {
     }
 
     func toggle(preferences: Preferences) {
-        guard !isActive else { dismiss(); return }
+        let action = playback.toggle(at: CACurrentMediaTime(), duration: duration)
+        switch action {
+        case .prepareClose:
+            guard inputGuard.activate(mode: .blackout) else {
+                dismiss()
+                error = inputGuard.error
+                return
+            }
+            duration = preferences.effectStyle == .shatter ? 3.0 : 1.6
+            tuning = DepthTuning(effectStyle: preferences.effectStyle, isManualBlackout: true,
+                                viewingDistance: preferences.viewingDistance, recession: preferences.recession,
+                                blurEvenness: preferences.blurEvenness, dimReach: preferences.dimReach,
+                                maxBlurRadius: preferences.maxBlurRadius, maxDim: preferences.maxDim)
+            prepareCapture(restoring: false)
+        case .prepareRestore:
+            // Capture fresh windows under black; retain the effect that closed the screen.
+            prepareCapture(restoring: true)
+        case .cancelPreparation:
+            dismiss()
+        case .cancelRestorePreparation:
+            invalidateWork()
+        case .directionChanged:
+            step()
+        }
+        onStateChange?()
+    }
+
+    private func prepareCapture(restoring: Bool) {
+        invalidateWork()
         guard CGPreflightScreenCaptureAccess() else {
+            dismiss()
             error = "Разрешите запись экрана для анимации по ⌥M."
             return
         }
-        _ = playback.toggle()
         error = nil
-        token += 1
         let run = token
-        duration = preferences.effectStyle == .shatter ? 3.0 : 1.6
-        tuning = DepthTuning(effectStyle: preferences.effectStyle, isManualBlackout: true,
-                            viewingDistance: preferences.viewingDistance, recession: preferences.recession,
-                            blurEvenness: preferences.blurEvenness, dimReach: preferences.dimReach,
-                            maxBlurRadius: preferences.maxBlurRadius, maxDim: preferences.maxDim)
-        onStateChange?()
         captureTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -86,10 +112,10 @@ final class ManualEffectController: ObservableObject {
                     guard overlay.warmUp() else { throw PlaybackError.rendererUnavailable }
                     targets.append(Target(screen: screen, overlay: overlay))
                     overlay.show(image: image, on: screen, startAngle: 110, tuning: tuning,
-                                 fadeIn: 0, allowExternalDisplay: true)
+                                 fadeIn: 0, allowExternalDisplay: true, initialProgress: restoring ? 1 : 0)
                 }
                 let deadline = CACurrentMediaTime() + 5
-                while !targets.allSatisfy({ $0.overlay.isPictureReady }) {
+                while !targets.allSatisfy({ $0.overlay.isFirstFrameReady }) {
                     try await Task.sleep(nanoseconds: 16_000_000)
                     try Task.checkCancellation()
                     guard token == run else { return }
@@ -97,13 +123,15 @@ final class ManualEffectController: ObservableObject {
                 }
                 guard token == run else { return }
                 playback.start(at: CACurrentMediaTime())
+                // Every overlay has rendered its black frame before the cover is removed.
+                if restoring { clearBlackWindows() }
                 let clock = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
                     MainActor.assumeIsolated { self?.step() }
                 }
                 RunLoop.main.add(clock, forMode: .common)
                 timer = clock
                 captureTask = nil
-                Diagnostics.geometry.notice("manual effect started, style \(self.tuning.effectStyle.rawValue)")
+                Diagnostics.geometry.notice("manual effect \(restoring ? "restoring" : "closing"), style \(self.tuning.effectStyle.rawValue)")
             } catch {
                 guard token == run else { return }
                 dismiss()
@@ -118,6 +146,11 @@ final class ManualEffectController: ObservableObject {
     private func step() {
         let progress = playback.progress(at: CACurrentMediaTime(), duration: duration)
         if playback.phase == .black { holdBlack(); return }
+        if playback.phase == .idle {
+            dismiss()
+            Diagnostics.geometry.notice("manual effect restored to clear")
+            return
+        }
         for target in targets {
             target.overlay.update(progress: progress, currentAngle: 110 - 100 * progress, tuning: tuning)
         }
@@ -125,11 +158,6 @@ final class ManualEffectController: ObservableObject {
 
     /// No captures, timers or GPU work remain while the screen is black.
     private func holdBlack() {
-        token += 1
-        captureTask?.cancel()
-        captureTask = nil
-        timer?.invalidate()
-        timer = nil
         var replacements: [NSWindow] = []
         for screen in NSScreen.screens {
             let window = OverlayWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
@@ -137,15 +165,14 @@ final class ManualEffectController: ObservableObject {
             window.isOpaque = true
             window.hasShadow = false
             window.isReleasedWhenClosed = false
-            // Consume clicks while black, so hidden controls cannot be clicked.
             window.ignoresMouseEvents = false
             window.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 2)
             window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
             window.orderFrontRegardless()
             replacements.append(window)
         }
-        clearTargets()
-        for window in blackWindows { window.orderOut(nil); window.close() }
+        invalidateWork()
+        clearBlackWindows()
         blackWindows = replacements
         playback.holdBlack()
         onStateChange?()
@@ -153,22 +180,25 @@ final class ManualEffectController: ObservableObject {
     }
 
     func dismiss() {
+        inputGuard.stop()
+        invalidateWork()
+        clearBlackWindows()
+        playback.cancel()
+        onStateChange?()
+    }
+    private func invalidateWork() {
         token += 1
         captureTask?.cancel()
         captureTask = nil
         timer?.invalidate()
         timer = nil
-        clearTargets()
-        for window in blackWindows { window.orderOut(nil); window.close() }
-        blackWindows.removeAll()
-        playback.cancel()
-        onStateChange?()
-    }
-    private func clearTargets() {
         for target in targets { target.overlay.shutdown() }
         targets.removeAll()
     }
-
+    private func clearBlackWindows() {
+        for window in blackWindows { window.orderOut(nil); window.close() }
+        blackWindows.removeAll()
+    }
     private enum PlaybackError: LocalizedError {
         case displayUnavailable, rendererUnavailable
         var errorDescription: String? {

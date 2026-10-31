@@ -112,6 +112,7 @@ final class DepthOverlay {
 
     var isVisible: Bool { window != nil }
     var isPictureReady: Bool { renderer?.isReady ?? false }
+    private(set) var isFirstFrameReady = false
     var hostWindow: NSWindow? { window }
 
     @discardableResult
@@ -197,7 +198,8 @@ final class DepthOverlay {
         startAngle: Double,
         tuning: DepthTuning,
         fadeIn: TimeInterval,
-        allowExternalDisplay: Bool = false
+        allowExternalDisplay: Bool = false,
+        initialProgress: Double = 0
     ) {
         dismiss(animated: false)
         // The screenshot's screen can be stale once the lid shuts into
@@ -228,8 +230,12 @@ final class DepthOverlay {
                     guard let self, self.buildToken == token, self.window === window,
                           let picture else { return }
                     renderer.adopt(picture)
-                    self.update(progress: 0, currentAngle: self.startAngle, tuning: self.tuning)
-                    self.reveal()
+                    self.update(progress: initialProgress, currentAngle: self.startAngle - 100 * initialProgress,
+                                tuning: self.tuning, onRendered: { [weak self] in
+                        guard let self, self.buildToken == token, self.window === window else { return }
+                        self.isFirstFrameReady = true
+                        self.reveal()
+                    })
                 }
             }
         }
@@ -249,7 +255,7 @@ final class DepthOverlay {
         )
         window.contentView = view
         window.isOpaque = false
-        window.backgroundColor = .clear
+        window.backgroundColor = tuning.isManualBlackout ? .black : .clear
         window.hasShadow = false
         window.ignoresMouseEvents = true
         window.isReleasedWhenClosed = false
@@ -259,6 +265,7 @@ final class DepthOverlay {
         window.alphaValue = 0
         window.orderFrontRegardless()
         hasRevealed = false
+        isFirstFrameReady = false
         self.window = window
     }
 
@@ -274,7 +281,8 @@ final class DepthOverlay {
         }
     }
 
-    func update(progress: Double, currentAngle: Double, tuning: DepthTuning) {
+    func update(progress: Double, currentAngle: Double, tuning: DepthTuning,
+                onRendered: (@MainActor @Sendable () -> Void)? = nil) {
         guard let renderer, renderer.isReady else { return }
         self.tuning = tuning
         renderer.render(
@@ -294,11 +302,13 @@ final class DepthOverlay {
             maxDim: tuning.maxDim,
             effectStyle: tuning.effectStyle,
             progress: progress,
-            blackout: tuning.isManualBlackout
+            blackout: tuning.isManualBlackout,
+            onRendered: onRendered
         )
     }
 
     func dismiss(animated: Bool, duration: TimeInterval = 0.22) {
+        isFirstFrameReady = false
         closeFadingWindow()
         guard let window else { return }
         self.window = nil

@@ -82,7 +82,8 @@ struct EffectPixelTests {
                 let depthTextureDescriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .depth32Float, width: size, height: size, mipmapped: false)
                 depthTextureDescriptor.storageMode = .private
                 depthTextureDescriptor.usage = .renderTarget
-                pass.depthAttachment.texture = try #require(device.makeTexture(descriptor: depthTextureDescriptor))
+                let depthTexture = try #require(device.makeTexture(descriptor: depthTextureDescriptor))
+                pass.depthAttachment.texture = depthTexture
                 pass.depthAttachment.loadAction = .clear
                 pass.depthAttachment.storeAction = .dontCare
                 pass.depthAttachment.clearDepth = 1

@@ -31,3 +31,25 @@ struct WindowBlurTests {
         #expect(result.width == size && result.height == size)
     }
 }
+
+struct BlurCursorStampTests {
+    @Test func cursorIsCompositedUnderBlurRatherThanDrawnSharpAboveIt() throws {
+        let context = CIContext()
+        let black = CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 128, height: 128))
+        let white = CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 16, height: 16))
+        let cursor = try #require(context.createCGImage(white, from: white.extent))
+        let stamp = BlurCursorStamp(image: cursor, rect: CGRect(x: 56, y: 56, width: 16, height: 16))
+        let result = try #require(WindowBlurRenderer().render(black, cursor: stamp))
+        let image = CIImage(cgImage: result)
+        func brightness(_ x: Int, _ y: Int) -> UInt8 {
+            var bytes = [UInt8](repeating: 0, count: 4)
+            bytes.withUnsafeMutableBytes {
+                context.render(image, toBitmap: $0.baseAddress!, rowBytes: 4, bounds: CGRect(x: x, y: y, width: 1, height: 1), format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())
+            }
+            return bytes[0]
+        }
+        #expect(brightness(64, 64) > 0 && brightness(64, 64) < 220)
+        #expect(brightness(48, 64) > 0) // Soft halo extends beyond the original cursor rectangle.
+        #expect(brightness(1, 1) == 0)
+    }
+}

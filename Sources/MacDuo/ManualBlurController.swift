@@ -19,8 +19,13 @@ final class ManualBlurController: ObservableObject {
     private var observers: [NSObjectProtocol] = []
     private var sleepObserver: NSObjectProtocol?
     private var generation = 0
+    private let inputGuard = BlackoutInputGuard()
 
     init() {
+        inputGuard.onFailure = { [weak self] message in
+            self?.dismiss()
+            self?.error = message
+        }
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.dismiss() }
         })
@@ -35,6 +40,11 @@ final class ManualBlurController: ObservableObject {
             error = "Разрешите запись экрана для STIX Lid Effects в Системных настройках."
             return
         }
+        let stamps = Dictionary(uniqueKeysWithValues: NSScreen.screens.compactMap { screen -> (CGDirectDisplayID, BlurCursorStamp)? in
+            guard let id = screen.displayID, let cursor = BlurCursorStamp.capture(on: screen) else { return nil }
+            return (id, cursor)
+        })
+        guard inputGuard.activate(mode: .blur) else { error = inputGuard.error; return }
         error = nil
         generation += 1
         let token = generation
@@ -60,7 +70,7 @@ final class ManualBlurController: ObservableObject {
                           let display = content.displays.first(where: { $0.displayID == id }) else {
                         throw BlurError.displayUnavailable
                     }
-                    let session = try WindowBlurStream(display: display, excluding: excluded, size: screen.frame.size,
+                    let session = try WindowBlurStream(display: display, excluding: excluded, size: screen.frame.size, cursor: stamps[id],
                         onFrame: { [weak self] image in
                             guard let self, generation == token, let view = views[id] else { return }
                             view.image = NSImage(cgImage: image, size: screen.frame.size)
@@ -105,6 +115,7 @@ final class ManualBlurController: ObservableObject {
     }
 
     func dismiss() {
+        inputGuard.stop()
         generation += 1
         captureTask?.cancel()
         captureTask = nil
@@ -134,7 +145,7 @@ final class ManualBlurController: ObservableObject {
         window.isOpaque = false
         window.backgroundColor = .clear
         window.hasShadow = false
-        window.ignoresMouseEvents = true
+        window.ignoresMouseEvents = false
         window.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1)
         window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         window.alphaValue = 0.004
