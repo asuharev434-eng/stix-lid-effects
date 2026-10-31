@@ -68,7 +68,9 @@ struct DepthTuning {
 }
 
 private final class MetalHostView: NSView {
-    init(layer metalLayer: CALayer, scale: CGFloat) {
+    private let hidesPointer: Bool
+    init(layer metalLayer: CALayer, scale: CGFloat, hidesPointer: Bool) {
+        self.hidesPointer = hidesPointer
         super.init(frame: .zero)
         metalLayer.contentsScale = scale
         self.layer = metalLayer
@@ -79,6 +81,15 @@ private final class MetalHostView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not used")
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        if hidesPointer { addCursorRect(bounds, cursor: ShieldCursor.invisible) }
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        if hidesPointer { ShieldCursor.invisible.set() }
     }
 
     override func layout() {
@@ -243,7 +254,7 @@ final class DepthOverlay {
 
     private func makeWindow(on screen: NSScreen, pixelScale: Double) {
         guard let renderer else { return }
-        let view = MetalHostView(layer: renderer.makeLayer(), scale: CGFloat(pixelScale))
+        let view = MetalHostView(layer: renderer.makeLayer(), scale: CGFloat(pixelScale), hidesPointer: tuning.isManualBlackout)
         view.frame = NSRect(origin: .zero, size: screenSize)
         view.autoresizingMask = [.width, .height]
 

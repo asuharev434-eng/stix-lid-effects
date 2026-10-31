@@ -27,6 +27,8 @@ final class BlackoutInputGuard {
     private var source: CFRunLoopSource?
     private var mode: InputShieldMode?
     private var cursorHidden = false
+    private var previousCursor: NSCursor?
+    private var previousApplication: NSRunningApplication?
     private var failurePending = false
     private var generation = 0
 
@@ -38,13 +40,14 @@ final class BlackoutInputGuard {
             return false
         }
         let context = Unmanaged.passUnretained(self).toOpaque()
-        guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap,
+        guard let tap = CGEvent.tapCreate(tap: .cghidEventTap, place: .headInsertEventTap,
                                          options: .defaultTap, eventsOfInterest: CGEventMask.max,
                                          callback: { _, type, event, info in
             guard let info else { return Unmanaged.passUnretained(event) }
             return MainActor.assumeIsolated {
                 let owner = Unmanaged<BlackoutInputGuard>.fromOpaque(info).takeUnretainedValue()
                 if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                    Diagnostics.geometry.error("input shield disabled by system: \(type.rawValue)")
                     owner.failOpen()
                     return Unmanaged.passUnretained(event)
                 }
@@ -63,13 +66,28 @@ final class BlackoutInputGuard {
         self.mode = mode
         CFRunLoopAddSource(CFRunLoopGetMain(), runSource, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        previousApplication = frontmost?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? nil : frontmost
+        // Cursor ownership follows the active application. Own the shield while it is visible,
+        // then return focus to the application from which the shortcut was invoked.
+        NSApp.activate()
         guard CGDisplayHideCursor(CGMainDisplayID()) == .success else {
             stop()
             error = "Не удалось скрыть указатель. Эффект отменён."
             return false
         }
         cursorHidden = true
+        previousCursor = NSCursor.current
+        ShieldCursor.invisible.set()
         return true
+    }
+    /// Window transitions may reset the cursor; reapply without growing the hide count.
+    func refreshHiddenCursor() {
+        guard mode != nil else { return }
+        ShieldCursor.invisible.set()
+        if cursorHidden { CGDisplayShowCursor(CGMainDisplayID()); cursorHidden = false }
+        if CGDisplayHideCursor(CGMainDisplayID()) == .success { cursorHidden = true }
+        else { failOpen() }
     }
     func stop() {
         generation += 1
@@ -79,6 +97,10 @@ final class BlackoutInputGuard {
         source = nil
         port = nil
         if cursorHidden { CGDisplayShowCursor(CGMainDisplayID()); cursorHidden = false }
+        previousCursor?.set()
+        previousCursor = nil
+        if let previousApplication, !previousApplication.isTerminated { previousApplication.activate(options: []) }
+        previousApplication = nil
         failurePending = false
     }
     private func failOpen() {

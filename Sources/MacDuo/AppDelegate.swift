@@ -40,8 +40,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller?.manuallySuppressed = blur.isActive || blur.isPreparing || manualEffect.isActive
     }
     private func toggleManualEffect() {
-        guard shortcut.effectAvailable else { return }
-        if !manualEffect.isActive { blur.dismiss() }
+        guard shortcut.effectAvailable, !blur.isActive, !blur.isPreparing else { return }
+        if !manualEffect.isActive { blur.dismiss(clearError: true) }
         manualEffect.toggle(preferences: Preferences.shared)
     }
 

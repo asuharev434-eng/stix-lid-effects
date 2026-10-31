@@ -25,6 +25,7 @@ final class ManualEffectController: ObservableObject {
     private var observers: [NSObjectProtocol] = []
     private var sleepObserver: NSObjectProtocol?
     private let inputGuard = BlackoutInputGuard()
+    private var screenLayout = NSScreen.screens.map { Layout(displayID: $0.displayID, frame: $0.frame) }
 
     init() {
         inputGuard.onFailure = { [weak self] message in
@@ -33,8 +34,11 @@ final class ManualEffectController: ObservableObject {
         }
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, self.isActive else { return }
-                self.holdBlack()
+                guard let self else { return }
+                let layout = NSScreen.screens.map { Layout(displayID: $0.displayID, frame: $0.frame) }
+                guard layout != self.screenLayout else { return }
+                self.screenLayout = layout
+                if self.isActive { self.holdBlack() }
             }
         })
         sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
@@ -125,13 +129,14 @@ final class ManualEffectController: ObservableObject {
                 playback.start(at: CACurrentMediaTime())
                 // Every overlay has rendered its black frame before the cover is removed.
                 if restoring { clearBlackWindows() }
+                inputGuard.refreshHiddenCursor()
                 let clock = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
                     MainActor.assumeIsolated { self?.step() }
                 }
                 RunLoop.main.add(clock, forMode: .common)
                 timer = clock
                 captureTask = nil
-                Diagnostics.geometry.notice("manual effect \(restoring ? "restoring" : "closing"), style \(self.tuning.effectStyle.rawValue)")
+                Diagnostics.geometry.notice("manual effect \(restoring ? "restoring" : "closing", privacy: .public), style \(self.tuning.effectStyle.rawValue)")
             } catch {
                 guard token == run else { return }
                 dismiss()
@@ -161,6 +166,9 @@ final class ManualEffectController: ObservableObject {
         var replacements: [NSWindow] = []
         for screen in NSScreen.screens {
             let window = OverlayWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
+            let view = PointerShieldView(frame: NSRect(origin: .zero, size: screen.frame.size))
+            view.autoresizingMask = [.width, .height]
+            window.contentView = view
             window.backgroundColor = .black
             window.isOpaque = true
             window.hasShadow = false
@@ -174,15 +182,16 @@ final class ManualEffectController: ObservableObject {
         invalidateWork()
         clearBlackWindows()
         blackWindows = replacements
+        inputGuard.refreshHiddenCursor()
         playback.holdBlack()
         onStateChange?()
         Diagnostics.geometry.notice("manual effect holding black until Option+M")
     }
 
     func dismiss() {
-        inputGuard.stop()
         invalidateWork()
         clearBlackWindows()
+        inputGuard.stop()
         playback.cancel()
         onStateChange?()
     }

@@ -8,10 +8,10 @@ final class WindowBlurStream {
     private let stream: SCStream
     private let receiver: Receiver
 
-    init(display: SCDisplay, excluding windows: [SCWindow], size: CGSize, cursor: BlurCursorStamp? = nil,
+    init(display: SCDisplay, excludingApplications applications: [SCRunningApplication], includingWindows windows: [SCWindow], size: CGSize, cursor: BlurCursorStamp? = nil,
          onFrame: @escaping @MainActor (CGImage) -> Void,
          onError: @escaping @MainActor (String) -> Void) throws {
-        let filter = SCContentFilter(display: display, excludingWindows: windows)
+        let filter = SCContentFilter(display: display, excludingApplications: applications, exceptingWindows: windows)
         let configuration = SCStreamConfiguration()
         configuration.width = max(1, Int(size.width))
         configuration.height = max(1, Int(size.height))

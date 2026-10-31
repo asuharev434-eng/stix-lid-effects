@@ -59,7 +59,7 @@ struct EffectsPanel: View {
                     Spacer()
                     Text("⌥M").font(.system(.body, design: .monospaced)).foregroundStyle(.secondary)
                 }.padding(.vertical, 5)
-            }.buttonStyle(.bordered).disabled(!canUseManualEffect)
+            }.buttonStyle(.bordered).disabled(!canUseManualEffect || blur.isActive || blur.isPreparing)
             Text("⌥M — эффект и чёрный экран. Повторное ⌥M — обратная анимация. В этом режиме работает только ⌥M.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Text("⌥B — живое размытие окон и неподвижного указателя. Ввод заблокирован до повторного ⌥B.")

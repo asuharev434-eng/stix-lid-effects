@@ -20,22 +20,29 @@ final class ManualBlurController: ObservableObject {
     private var sleepObserver: NSObjectProtocol?
     private var generation = 0
     private let inputGuard = BlackoutInputGuard()
+    private var screenLayout = NSScreen.screens.map { Layout(displayID: $0.displayID, frame: $0.frame) }
 
     init() {
         inputGuard.onFailure = { [weak self] message in
-            self?.dismiss()
+            self?.dismiss(reason: "input shield failure")
             self?.error = message
         }
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.dismiss() }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let layout = NSScreen.screens.map { Layout(displayID: $0.displayID, frame: $0.frame) }
+                guard layout != self.screenLayout else { return }
+                self.screenLayout = layout
+                self.dismiss(reason: "display layout changed")
+            }
         })
         sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.dismiss() }
+            MainActor.assumeIsolated { self?.dismiss(reason: "sleep") }
         }
     }
 
     func toggle() {
-        if isActive || isPreparing { dismiss(); return }
+        if isActive || isPreparing { dismiss(reason: "Option+B"); return }
         guard CGPreflightScreenCaptureAccess() else {
             error = "Разрешите запись экрана для STIX Lid Effects в Системных настройках."
             return
@@ -55,22 +62,26 @@ final class ManualBlurController: ObservableObject {
             do {
                 let screens = NSScreen.screens
                 guard !screens.isEmpty else { throw BlurError.displayUnavailable }
-                // Put transparent windows on screen first, so SCK can exclude their IDs.
+                // Create the windows first so ScreenCaptureKit can identify our application.
                 for screen in screens { try makeWindow(on: screen) }
                 let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
                 try Task.checkCancellation()
                 guard generation == token else { return }
-                let overlayIDs = Set(windows.map { CGWindowID($0.windowNumber) })
-                let excluded = content.windows.filter { overlayIDs.contains($0.windowID) }
-                // Do not start a stream unless all overlays can be excluded: avoids feedback.
-                guard excluded.count == overlayIDs.count else { throw BlurError.overlayUnavailable }
+                let ownApplications = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
+                guard !ownApplications.isEmpty else { throw BlurError.applicationUnavailable }
+                let overlayIDs = Set(NSApp.windows.compactMap { $0 is OverlayWindow ? CGWindowID($0.windowNumber) : nil })
+                let ownUI = content.windows.filter {
+                    $0.owningApplication?.processID == ProcessInfo.processInfo.processIdentifier && !overlayIDs.contains($0.windowID)
+                }
+                // Exclude our app with explicit UI exceptions. New/transparent overlay IDs may
+                // be absent from the current window list but will still never feed back.
                 for screen in screens {
                     try Task.checkCancellation()
                     guard let id = screen.displayID,
                           let display = content.displays.first(where: { $0.displayID == id }) else {
                         throw BlurError.displayUnavailable
                     }
-                    let session = try WindowBlurStream(display: display, excluding: excluded, size: screen.frame.size, cursor: stamps[id],
+                    let session = try WindowBlurStream(display: display, excludingApplications: ownApplications, includingWindows: ownUI, size: screen.frame.size, cursor: stamps[id],
                         onFrame: { [weak self] image in
                             guard let self, generation == token, let view = views[id] else { return }
                             view.image = NSImage(cgImage: image, size: screen.frame.size)
@@ -78,6 +89,7 @@ final class ManualBlurController: ObservableObject {
                             readyDisplays.insert(id)
                             if readyDisplays.count == views.count, isPreparing {
                                 Diagnostics.geometry.notice("live window blur ready on \(self.views.count) display(s)")
+                                inputGuard.refreshHiddenCursor()
                                 isPreparing = false
                                 isActive = true
                                 startupTimeout?.invalidate()
@@ -114,8 +126,9 @@ final class ManualBlurController: ObservableObject {
         }
     }
 
-    func dismiss() {
-        inputGuard.stop()
+    func dismiss(clearError: Bool = false, reason: String = "cleanup") {
+        if isActive || isPreparing { Diagnostics.geometry.notice("manual blur dismissed: \(reason, privacy: .public)") }
+        if clearError { error = nil }
         generation += 1
         captureTask?.cancel()
         captureTask = nil
@@ -127,6 +140,7 @@ final class ManualBlurController: ObservableObject {
         readyDisplays.removeAll()
         for window in windows { window.orderOut(nil); window.close() }
         windows.removeAll()
+        inputGuard.stop()
         isActive = false
         isPreparing = false
         onStateChange?(false)
@@ -135,7 +149,7 @@ final class ManualBlurController: ObservableObject {
     private func makeWindow(on screen: NSScreen) throws {
         guard let id = screen.displayID else { throw BlurError.displayUnavailable }
         let window = OverlayWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
-        let view = NSImageView(frame: NSRect(origin: .zero, size: screen.frame.size))
+        let view = PointerShieldImageView(frame: NSRect(origin: .zero, size: screen.frame.size))
         view.wantsLayer = true
         view.layer?.isOpaque = false
         view.imageScaling = .scaleAxesIndependently
@@ -143,7 +157,7 @@ final class ManualBlurController: ObservableObject {
         window.isReleasedWhenClosed = false
         // Non-opaque backing keeps apps behind the overlay rendering live content.
         window.isOpaque = false
-        window.backgroundColor = .clear
+        window.backgroundColor = .black
         window.hasShadow = false
         window.ignoresMouseEvents = false
         window.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1)
@@ -155,11 +169,11 @@ final class ManualBlurController: ObservableObject {
     }
 
     private enum BlurError: LocalizedError {
-        case displayUnavailable, overlayUnavailable
+        case displayUnavailable, applicationUnavailable
         var errorDescription: String? {
             switch self {
             case .displayUnavailable: return "Экран недоступен. Попробуйте ещё раз."
-            case .overlayUnavailable: return "Не удалось исключить слой размытия из захвата."
+            case .applicationUnavailable: return "Не удалось подготовить приложение для захвата экрана."
             }
         }
     }
