@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let manualEffect = ManualEffectController()
     private let shortcut = GlobalShortcut()
     private let startup = LoginStartup()
+    private let matte = MatteOverlayController()
     private var effectsWindow: EffectsWindowController?
     private var controller: LidController?
     private var statusItemController: StatusItemController?
@@ -26,9 +27,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         shortcut.effectAction = { [weak self] in self?.toggleManualEffect() }
         shortcut.register()
-        effectsWindow = EffectsWindowController(preferences: preferences, controller: controller, blur: blur, manualEffect: manualEffect, startup: startup, shortcutError: shortcut.error, canUseManualEffect: shortcut.effectAvailable, onToggleEffect: { [weak self] in self?.toggleManualEffect() })
+        effectsWindow = EffectsWindowController(preferences: preferences, controller: controller, blur: blur, manualEffect: manualEffect, matte: matte, startup: startup, shortcutError: shortcut.error, canUseManualEffect: shortcut.effectAvailable, onToggleEffect: { [weak self] in self?.toggleManualEffect() })
         statusItemController?.onShowPanel = { [weak self] in self?.effectsWindow?.show() }
         controller.start()
+        matte.restore()
         if !UserDefaults.standard.bool(forKey: "didConfigureStartup") {
             startup.setEnabled(true)
             UserDefaults.standard.set(true, forKey: "didConfigureStartup")
@@ -48,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         blur.dismiss()
         manualEffect.dismiss()
+        matte.stop()
         shortcut.stop()
         controller?.stop()
     }

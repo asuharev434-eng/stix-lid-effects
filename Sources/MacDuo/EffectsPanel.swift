@@ -7,6 +7,7 @@ struct EffectsPanel: View {
     @ObservedObject var controller: LidController
     @ObservedObject var manualEffect: ManualEffectController
     @ObservedObject var blur: ManualBlurController
+    @ObservedObject var matte: MatteOverlayController
     @ObservedObject var startup: LoginStartup
     let shortcutError: String?
     let canUseManualEffect: Bool
@@ -64,6 +65,26 @@ struct EffectsPanel: View {
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Text("⌥B — живое размытие окон и неподвижного указателя. Ввод заблокирован до повторного ⌥B.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Divider()
+            Button { matte.toggle() } label: {
+                HStack {
+                    Image(systemName: "sun.haze")
+                    Text(matte.isEnabled ? "Снять матовое покрытие" : "Матовое покрытие")
+                    Spacer()
+                    if matte.isEnabled { Image(systemName: "checkmark.circle.fill").foregroundStyle(.tint) }
+                }.padding(.vertical, 5)
+            }.buttonStyle(.bordered).disabled(manualEffect.isActive || blur.isActive || blur.isPreparing)
+            if matte.isEnabled {
+                HStack {
+                    Text("Сила покрытия").font(.caption)
+                    Slider(value: $matte.intensity, in: 0.15...1)
+                        .accessibilityLabel("Сила матового покрытия")
+                    Text("\(Int((matte.intensity * 100).rounded()))%")
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 34)
+                }
+            }
+            Text("Визуальная имитация nano-texture. Управление работает как обычно.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Toggle("Запускать при входе", isOn: Binding(get: { startup.enabled }, set: { startup.setEnabled($0) }))
                 .toggleStyle(.switch).controlSize(.small)
             if !permission {
@@ -79,7 +100,7 @@ struct EffectsPanel: View {
                     if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") { NSWorkspace.shared.open(url) }
                 }
             }
-            if let message = manualEffect.error ?? blur.error ?? shortcutError ?? startup.message {
+            if let message = manualEffect.error ?? blur.error ?? matte.error ?? shortcutError ?? startup.message {
                 Text(message).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
             Divider()
@@ -102,11 +123,11 @@ struct EffectsPanel: View {
 final class EffectsWindowController {
     private let window: NSWindow
     private var advanced: NSWindow?
-    init(preferences: Preferences, controller: LidController, blur: ManualBlurController, manualEffect: ManualEffectController, startup: LoginStartup, shortcutError: String?, canUseManualEffect: Bool, onToggleEffect: @escaping () -> Void) {
+    init(preferences: Preferences, controller: LidController, blur: ManualBlurController, manualEffect: ManualEffectController, matte: MatteOverlayController, startup: LoginStartup, shortcutError: String?, canUseManualEffect: Bool, onToggleEffect: @escaping () -> Void) {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 480), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "STIX Lid Effects"
         window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: EffectsPanel(preferences: preferences, controller: controller, manualEffect: manualEffect, blur: blur, startup: startup, shortcutError: shortcutError, canUseManualEffect: canUseManualEffect, onToggleEffect: onToggleEffect, onAdvanced: { [weak self] in
+        window.contentView = NSHostingView(rootView: EffectsPanel(preferences: preferences, controller: controller, manualEffect: manualEffect, blur: blur, matte: matte, startup: startup, shortcutError: shortcutError, canUseManualEffect: canUseManualEffect, onToggleEffect: onToggleEffect, onAdvanced: { [weak self] in
             self?.showAdvanced(preferences: preferences, controller: controller)
         }))
         window.center()
