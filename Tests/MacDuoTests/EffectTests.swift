@@ -39,6 +39,8 @@ struct EffectPixelTests {
         let cardPipeline = try device.makeRenderPipelineState(descriptor: descriptor)
         let cardVertices = CardDeckMesh.vertices(aspect: 1)
         let cardBuffer = try #require(cardVertices.withUnsafeBytes { device.makeBuffer(bytes: $0.baseAddress!, length: $0.count, options: .storageModeShared) })
+        let rearVertices = cardVertices.filter { $0.motion.z > 0 }
+        let rearBuffer = try #require(rearVertices.withUnsafeBytes { device.makeBuffer(bytes: $0.baseAddress!, length: $0.count, options: .storageModeShared) })
         let atlas = try #require(CardArtwork.makeAtlas())
         let atlasDescriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm_srgb, width: atlas.width, height: atlas.height, mipmapped: false)
         atlasDescriptor.storageMode = .shared
@@ -58,6 +60,12 @@ struct EffectPixelTests {
         sourceDescriptor.usage = [.shaderRead]
         sourceDescriptor.storageMode = .shared
         let source = try #require(device.makeTexture(descriptor: sourceDescriptor))
+        let alternateSource = try #require(device.makeTexture(descriptor: sourceDescriptor))
+        var alternatePixels = [UInt8](repeating: 255, count: size * size * 4)
+        for i in stride(from: 0, to: alternatePixels.count, by: 4) {
+            alternatePixels[i] = 20; alternatePixels[i + 1] = 90; alternatePixels[i + 2] = 180
+        }
+        alternatePixels.withUnsafeBytes { alternateSource.replace(region: MTLRegionMake2D(0, 0, size, size), mipmapLevel: 0, withBytes: $0.baseAddress!, bytesPerRow: size * 4) }
         var pixels = [UInt8](repeating: 255, count: size * size * 4)
         for y in 0..<size {
             for x in 0..<size {
@@ -75,7 +83,7 @@ struct EffectPixelTests {
         mipCommand.commit()
         mipCommand.waitUntilCompleted()
 
-        func render(_ style: EffectStyle, _ progress: Float, blackout: Bool = false) throws -> [UInt8] {
+        func render(_ style: EffectStyle, _ progress: Float, blackout: Bool = false, rearOnly: Bool = false, changedDesktop: Bool = false) throws -> [UInt8] {
             let outputDescriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: size, height: size, mipmapped: false)
             outputDescriptor.storageMode = .shared
             outputDescriptor.usage = [.renderTarget]
@@ -107,13 +115,13 @@ struct EffectPixelTests {
             encoder.setRenderPipelineState(style == .cards ? cardPipeline : style == .shatter ? glassPipeline : pipeline)
             if isMesh {
                 encoder.setDepthStencilState(depthState)
-                encoder.setVertexBuffer(style == .cards ? cardBuffer : glassBuffer, offset: 0, index: 0)
+                encoder.setVertexBuffer(style == .cards ? (rearOnly ? rearBuffer : cardBuffer) : glassBuffer, offset: 0, index: 0)
                 uniforms.withUnsafeMutableBytes { encoder.setVertexBytes($0.baseAddress!, length: $0.count, index: 1) }
             }
             uniforms.withUnsafeMutableBytes { encoder.setFragmentBytes($0.baseAddress!, length: $0.count, index: 0) }
-            encoder.setFragmentTexture(source, index: 0)
+            encoder.setFragmentTexture(changedDesktop ? alternateSource : source, index: 0)
             if style == .cards { encoder.setFragmentTexture(atlasTexture, index: 1) }
-            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: style == .cards ? cardVertices.count : style == .shatter ? vertices.count : 3)
+            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: style == .cards ? (rearOnly ? rearVertices.count : cardVertices.count) : style == .shatter ? vertices.count : 3)
             encoder.endEncoding()
             command.commit()
             command.waitUntilCompleted()
@@ -144,6 +152,12 @@ struct EffectPixelTests {
         for style in EffectStyle.allCases {
             let black = try render(style, 1, blackout: true)
             #expect(black.enumerated().allSatisfy { $0.offset % 4 == 3 ? $0.element == 255 : $0.element == 0 }, "Manual effect must end fully black: \(style.title)")
+        }
+        #expect(try render(.cards, 0) != render(.cards, 0, changedDesktop: true))
+        for phase: Float in [0, 0.3, 0.5] {
+            let ordinaryCards = try render(.cards, phase, rearOnly: true)
+            let differentScreen = try render(.cards, phase, rearOnly: true, changedDesktop: true)
+            #expect(ordinaryCards == differentScreen, "Additional cards must not sample any desktop pixels")
         }
         let flyingCards = try render(.cards, 0.43)
         let visibleCards = stride(from: 0, to: flyingCards.count, by: 4).filter {

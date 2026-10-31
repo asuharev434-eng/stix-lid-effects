@@ -111,6 +111,7 @@ enum DepthShaders {
         float3 normal;
         float cardID;
         float lift;
+        float extra;
     };
     vertex CardVarying cardVertex(uint id [[vertex_id]],
                                   constant GlassVertex *vertices [[buffer(0)]],
@@ -119,12 +120,13 @@ enum DepthShaders {
         float aspect = u.screenAndOrigin.x / u.screenAndOrigin.y;
         float p = clamp(u.effect.y, 0.0, 1.0);
         float t = max(p - v.motion.x, 0.0) * 4.6;
-        float lift = smoothstep(0.0, 0.38, t);
+        bool extra = v.motion.z > 0.0;
+        float lift = extra ? 1.0 : smoothstep(0.0, 0.38, t);
         float3 local = float3((v.source - v.pivot) * float2(aspect, 1.0), 0.0);
         // Start as exact desktop tiles; grow into standard poker-card proportions.
         local.x *= mix(1.0, ((1.0 / v.edge.w) * 140.0 / 196.0) / (aspect / v.edge.z), lift);
         float sign = fmod(v.axis.w, 2.0) < 1.0 ? 1.0 : -1.0;
-        float turnY = sign * t * (3.3 + v.motion.y * 2.4);
+        float turnY = (extra ? 3.14159265 : 0.0) + sign * t * (3.3 + v.motion.y * 2.4);
         float turnX = t * v.axis.x * 2.0;
         float turnZ = t * v.axis.z * 1.4;
         float3 rotated = glassRotate(local, float3(0, 1, 0), turnY);
@@ -137,7 +139,8 @@ enum DepthShaders {
         float2 drift = float2(radial.x * 0.55 + (v.motion.y - 0.5) * 0.32, radial.y * 0.32 - 0.015);
         float3 world = float3(v.pivot * float2(aspect, 1.0), 0.0) + rotated;
         world.xy += drift * (t + 0.20 * t * t);
-        world.z -= (1.05 + v.motion.y * 0.30) * t + 0.46 * t * t;
+        world.z += v.motion.z;
+        world.z -= ((1.05 + v.motion.y * 0.30) * t + 0.46 * t * t) * (1.0 + v.motion.z * 0.45);
         // Homogeneous projection: cards clip naturally as they pass the near plane.
         const float camera = 2.8, nearPlane = 0.08, farPlane = 8.0;
         float w = camera + world.z;
@@ -149,6 +152,7 @@ enum DepthShaders {
         out.normal = normal;
         out.cardID = v.axis.w;
         out.lift = lift;
+        out.extra = extra ? 1.0 : 0.0;
         return out;
     }
     fragment float4 cardFragment(CardVarying in [[stage_in]],
@@ -164,11 +168,21 @@ enum DepthShaders {
         float3 normal = normalize(in.normal);
         float3 colour;
         if (normal.z >= 0.0) {
-            // The reverse of every card is its own desktop fragment.
-            float2 point = float2(in.source.x * u.screenAndOrigin.x, (1.0 - in.source.y) * u.screenAndOrigin.y);
-            float2 tex = (point - u.screenAndOrigin.zw) / u.paddedAndBlur.xy;
-            tex.y = 1.0 - tex.y;
-            colour = picture.sample(linearSampler, tex, level(0.0)).rgb;
+            if (in.extra > 0.5) {
+                // Ordinary rear-deck cards have their own navy/gold printed backs.
+                float2 weave = in.uv * float2(18.0, 26.0);
+                float lattice = 1.0 - smoothstep(0.045, 0.14, abs(sin((weave.x + weave.y) * 3.14159265)));
+                lattice += 1.0 - smoothstep(0.045, 0.14, abs(sin((weave.x - weave.y) * 3.14159265)));
+                colour = mix(float3(0.012, 0.025, 0.075), float3(0.25, 0.17, 0.07), min(lattice, 1.0) * 0.65);
+                float emblem = abs(length((in.uv - 0.5) * float2(0.7142857, 1.0)) - 0.18);
+                colour = mix(colour, float3(0.65, 0.46, 0.16), 1.0 - smoothstep(0.004, 0.009, emblem));
+            } else {
+                // Only the original screen-plane deck samples desktop fragments.
+                float2 point = float2(in.source.x * u.screenAndOrigin.x, (1.0 - in.source.y) * u.screenAndOrigin.y);
+                float2 tex = (point - u.screenAndOrigin.zw) / u.paddedAndBlur.xy;
+                tex.y = 1.0 - tex.y;
+                colour = picture.sample(linearSampler, tex, level(0.0)).rgb;
+            }
             float edge = min(min(in.uv.x, 1.0 - in.uv.x) * 140.0 / 196.0, min(in.uv.y, 1.0 - in.uv.y));
             float border = (1.0 - smoothstep(0.006, 0.012, edge)) * in.lift;
             colour = mix(colour, float3(0.96, 0.94, 0.89), border);
